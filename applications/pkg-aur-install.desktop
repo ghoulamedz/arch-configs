@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/pkg-aur-install.desktop
+#
+# The AUR equivalent. alt-b in the picker previews the PKGBUILD before building.
+Type=Application
+Name=Install AUR Package
+GenericName=Package installer
+Comment=Browse and install packages from the Arch User Repository
+Exec=foot --app-id=float-pkg-aur-install -e pkg-aur-install
+Icon=system-software-install
+Terminal=false
+Categories=System;PackageManager;
+Keywords=aur;paru;install;package;build;yay;
+StartupNotify=false

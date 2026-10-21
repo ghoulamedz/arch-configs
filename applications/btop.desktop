@@ -1,0 +1,16 @@
+[Desktop Entry]
+# ~/.local/share/applications/btop.desktop
+#
+# The btop package ships no .desktop file, so without this typing "btop" in the
+# launcher finds nothing. Terminal=false plus an explicit terminal keeps the
+# window tiling normally (unlike the pickers, which float).
+Type=Application
+Name=btop
+GenericName=System Monitor
+Comment=Resource monitor: CPU, memory, disks, network, processes
+Exec=ghostty -e btop
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+Keywords=btop;monitor;cpu;memory;ram;disk;network;process;top;htop;
+StartupNotify=false

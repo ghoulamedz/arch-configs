@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# pkg-remove — fuzzy-finder TUI for removing installed packages.
+#
+# Lists only what is actually installed, previews what depends on the highlighted
+# package, and removes with -Rns so dependencies and configuration files go too.
+
+set -euo pipefail
+
+command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
+
+# pacman -Qq is the list of installed package names.
+# pacman -Qii shows reverse dependencies and the files it owns, which is what you
+# want to see before deleting something.
+mapfile -t chosen < <(
+  pacman -Qq | fzf --multi \
+    --preview 'pacman -Qii {1}' \
+    --preview-label='tab: multi-select  ·  alt-j/k: scroll' \
+    --preview-label-pos='bottom' \
+    --preview-window 'down:65%:wrap' \
+    --bind 'alt-p:toggle-preview' \
+    --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up' \
+    --bind 'alt-k:preview-up,alt-j:preview-down' \
+    --color 'pointer:#f7768e,marker:#f7768e,hl:#bb9af7'
+)
+
+(( ${#chosen[@]} )) || exit 0
+
+# -R remove, -n also remove dependencies nothing else needs, -s also remove
+# dependencies of those, -s included: the standard "remove it completely".
+sudo pacman -Rns "${chosen[@]}"

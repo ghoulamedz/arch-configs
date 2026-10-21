@@ -1,0 +1,7 @@
+paru
+pantum-universal-driver
+vazirmatn-fonts
+ttf-amiri
+ttf-arabeyes-fonts
+herdr-bin
+hunspell-ar

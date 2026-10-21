@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# osd-volume <+N%|-N%|toggle> — change the volume and show an on-screen display.
+#
+# This is the replacement for Omarchy's Quickshell volume overlay. There is no
+# overlay protocol on Wayland, so the OSD is a transient mako notification: the
+# x-canonical-private-synchronous hint makes each new one replace the previous,
+# and mako's [app-name=osd] section in ~/.config/mako/config keeps it short.
+#
+# Bound to the XF86Audio volume keys and to Waybar's scroll actions.
+
+set -euo pipefail
+
+action=${1:-}
+
+# Accept both argument spellings. The XF86Audio volume keys and Waybar's scroll
+# actions pass the brightnessctl-style trailing form (`5%-`), while the fine-step
+# bindings pass a leading `-` (`-1`). Normalising here rather than at the call
+# sites means both are valid — and the previous version rejected `5%-` with a
+# usage error, so volume DOWN did nothing at all.
+case $action in
+  toggle) ;;
+  +*)     ;;
+  *%-)    action="-${action%-}" ;;   # 5%- -> -5%
+  -*)     ;;
+  *) echo "usage: osd-volume <+N%|-N%|5%-|toggle>" >&2; exit 2 ;;
+esac
+
+# Apply the change. pamixer takes a plain number, so the sign and the percent
+# sign are stripped before it is passed on.
+case $action in
+  toggle)
+    pamixer -t
+    ;;
+  +*)
+    value=${action#+}; value=${value%\%}
+    # --allow-boost lets the volume go above 100%, which is useful for quiet
+    # sources and is what the keyboard keys do on a laptop normally.
+    pamixer --allow-boost -i "$value"
+    ;;
+  -*)
+    value=${action#-}; value=${value%\%}
+    pamixer -d "$value"
+    ;;
+esac
+
+# Read back the resulting state, rather than assuming the change was applied.
+volume=$(pamixer --get-volume)
+muted=$(pamixer --get-mute)
+
+# A ten-block bar. Two characters, so it renders in any terminal font.
+bar() {
+  local filled=$1 total=10 out='' i
+  for (( i = 0; i < total; i++ )); do
+    if (( i < filled )); then out+='█'; else out+='░'; fi
+  done
+  printf '%s' "$out"
+}
+
+if [[ $muted == true ]]; then
+  icon='audio-volume-muted'
+  text="muted  $(bar 0)"
+else
+  # Clamp to the bar's range so >100% does not overflow the display.
+  filled=$(( volume / 10 ))
+  (( filled > 10 )) && filled=10
+  if   (( volume == 0 )); then icon='audio-volume-muted'
+  elif (( volume < 34 )); then icon='audio-volume-low'
+  elif (( volume < 67 )); then icon='audio-volume-medium'
+  else                         icon='audio-volume-high'
+  fi
+  text="$(bar "$filled")  ${volume}%"
+fi
+
+# -h string:x-canonical-private-synchronous:volume  replace the previous OSD
+# -t 1500                                            disappear quickly
+notify-send \
+  -a osd \
+  -i "$icon" \
+  -t 1500 \
+  -h string:x-canonical-private-synchronous:volume \
+  "$text"

@@ -1,0 +1,5 @@
+{
+    "update.mode": "none",
+    "git.enableSmartCommit": true,
+    "git.confirmSync": false
+}

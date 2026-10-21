@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# screenshot-full — capture the focused output, save it, and copy it.
+#
+# Replaces Omarchy's PRINT binding. Captures only the monitor that currently has
+# focus, which is what you want on a multi-monitor setup; capturing everything
+# stitched together is rarely useful.
+
+set -euo pipefail
+
+DIR="$HOME/Pictures/Screenshots"
+install -d "$DIR"
+
+file="$DIR/$(date +%Y-%m-%d_%H-%M-%S)_full.png"
+
+# Ask Hyprland which output is focused. `-o` tells grim to capture just that one.
+output=$(hyprctl monitors -j | jq -r '.[] | select(.focused) | .name')
+grim -o "$output" "$file"
+
+wl-copy <"$file"
+
+notify-send -a screenshot -i camera-photo "Screenshot saved" "$(basename "$file")"

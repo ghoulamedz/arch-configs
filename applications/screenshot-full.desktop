@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/screenshot-full.desktop
+#
+# Captures the focused monitor only, not every monitor stitched together.
+Type=Application
+Name=Screenshot Full Screen
+GenericName=Screenshot
+Comment=Capture the focused monitor, save it and copy it to the clipboard
+Exec=screenshot-full
+Icon=applets-screenshooter
+Terminal=false
+Categories=Graphics;
+Keywords=screenshot;capture;screen;monitor;full;grim;
+StartupNotify=false

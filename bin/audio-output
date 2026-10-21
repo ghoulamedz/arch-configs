@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# audio-output [switch|list] — move the default audio output between sinks.
+#
+# Replaces Omarchy's omarchy-audio-output-switch, which cycled the default sink.
+# On this machine the useful case is moving between the internal speakers and
+# headphones or an HDMI output.
+#
+# wpctl is WirePlumber's CLI, and `wpctl set-default` is what actually changes the
+# default sink. pamixer's --sink only affects a single invocation, so it cannot be
+# used for this.
+#
+# Bound to SHIFT + XF86AudioMute.
+
+set -euo pipefail
+
+command -v wpctl >/dev/null || { echo "wpctl not found (wireplumber)" >&2; exit 1; }
+
+# Parse the *audio* Sinks section out of `wpctl status`.
+#
+# The output has several sections and the word "Sinks:" appears twice — once
+# under Audio and once under Video. Only the first is wanted, hence the `seen`
+# guard. Each line looks like:
+#   │  *   45. Built-in Audio Analog Stereo        [vol: 0.76]
+# where the leading * marks the current default.
+list_sinks() {
+  wpctl status | awk '
+    /Sinks:/ {
+      if (seen) { in_sinks = 0 } else { in_sinks = 1; seen = 1 }
+      next
+    }
+    /Sources:|Filters:|Streams:|Video/ { in_sinks = 0 }
+
+    in_sinks && match($0, /[0-9]+\./) {
+      id = substr($0, RSTART, RLENGTH - 1)
+
+      desc = $0
+      sub(/^[^0-9]*[0-9]+\.[[:space:]]*/, "", desc)
+      sub(/[[:space:]]*\[vol:.*$/, "", desc)
+      sub(/[[:space:]]+$/, "", desc)
+
+      printf "%s\t%s%s\n", id, ($0 ~ /\*/ ? "* " : "  "), desc
+    }
+  '
+}
+
+action=${1:-switch}
+
+case $action in
+  list)
+    list_sinks
+    ;;
+
+  switch)
+    mapfile -t sinks < <(list_sinks)
+    (( ${#sinks[@]} )) || { echo "no audio sinks found" >&2; exit 1; }
+
+    # One sink is not a choice; say so instead of opening a pointless menu.
+    if (( ${#sinks[@]} == 1 )); then
+      notify-send -a audio -i audio-card "Only one audio output" "${sinks[0]#*$'\t'}"
+      exit 0
+    fi
+
+    choice=$(
+      printf '%s\n' "${sinks[@]}" | fzf \
+        --delimiter='\t' --with-nth=2.. \
+        --prompt='output> ' \
+        --color 'pointer:#7aa2f7,hl:#bb9af7'
+    ) || exit 0
+
+    [[ -n $choice ]] || exit 0
+
+    id=${choice%%$'\t'*}
+    wpctl set-default "$id"
+
+    # Confirm which one is now default, read back rather than assumed.
+    name=$(wpctl inspect "$id" 2>/dev/null | awk -F'"' '/node.description/{print $2; exit}')
+    notify-send -a audio -i audio-card "Audio output" "${name:-sink $id}"
+    ;;
+
+  *)
+    echo "usage: audio-output [switch|list]" >&2
+    exit 2
+    ;;
+esac

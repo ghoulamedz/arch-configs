@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# power-menu — lock, suspend, log out, reboot or shut down.
+#
+# Replaces Omarchy's system menu (SUPER + ESCAPE). Bound to SUPER + ESCAPE and to
+# XF86PowerOff in ~/.config/hypr/bindings.lua.
+
+set -euo pipefail
+
+command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
+
+# The list is fed on stdin. Esc cancels, which fzf reports as a non-zero exit.
+choice=$(
+  fzf --reverse \
+    --prompt='power> ' \
+    --color 'pointer:#f7768e,hl:#bb9af7' <<'EOF'
+Lock
+Suspend
+Log out
+Reboot
+Shut down
+EOF
+) || exit 0
+
+# exec replaces this process, so the window closes with the action rather than
+# lingering behind it.
+case $choice in
+  Lock)        exec hyprlock ;;
+  Suspend)     exec systemctl suspend ;;
+  'Log out')   exec hyprctl dispatch exit ;;
+  Reboot)      exec systemctl reboot ;;
+  'Shut down') exec systemctl poweroff ;;
+esac

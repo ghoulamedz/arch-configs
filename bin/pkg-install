@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# pkg-install — fuzzy-finder TUI for installing packages from the official repos.
+#
+# Replaces Omarchy's omarchy-pkg-install. Same interaction: type to filter, Tab to
+# multi-select, Enter to confirm, with the highlighted package's full metadata
+# previewed below the list.
+
+set -euo pipefail
+
+# Fail early if fzf is missing rather than showing an empty list.
+command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
+
+# pacman -Slq prints "<repo>/<name>" for every package in the sync databases.
+# The preview runs pacman -Sii, which prints the description, dependencies,
+# download size and installed size for the highlighted entry.
+mapfile -t chosen < <(
+  pacman -Slq | fzf --multi \
+    --preview 'pacman -Sii {1}' \
+    --preview-label='alt-p: toggle preview  ·  alt-j/k: scroll  ·  tab: multi-select' \
+    --preview-label-pos='bottom' \
+    --preview-window 'down:65%:wrap' \
+    --bind 'alt-p:toggle-preview' \
+    --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up' \
+    --bind 'alt-k:preview-up,alt-j:preview-down' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+)
+
+# Esc, or a selection of nothing: leave quietly without running pacman.
+(( ${#chosen[@]} )) || exit 0
+
+# --needed means an already-installed package is a no-op instead of a reinstall.
+sudo pacman -S --needed "${chosen[@]}"

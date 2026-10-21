@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/display-scale.desktop
+#
+# With no argument the script opens a picker, showing the current scale in the
+# prompt. 1 is native; 1.25 and 1.6 suit a 1080p panel; 2 is a large-text step.
+Type=Application
+Name=Display Scale
+GenericName=Display settings
+Comment=Change the scale of the focused monitor
+Exec=foot --app-id=float-display-scale -e display-scale menu
+Icon=video-display
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=scale;scaling;hidpi;dpi;zoom;display;monitor;resolution;
+StartupNotify=false

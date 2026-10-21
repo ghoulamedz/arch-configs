@@ -1,0 +1,12 @@
+[Desktop Entry]
+# ~/.local/share/applications/power-menu.desktop
+Type=Application
+Name=Power Menu
+GenericName=System
+Comment=Lock, suspend, log out, reboot or shut down
+Exec=foot --app-id=float-power-menu -e power-menu
+Icon=system-shutdown
+Terminal=false
+Categories=System;
+Keywords=power;shutdown;reboot;restart;suspend;lock;logout;session;
+StartupNotify=false

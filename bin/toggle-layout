@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# toggle-layout — switch the tiling layout between dwindle and master.
+#
+# Replaces Omarchy's omarchy-hyprland-workspace-layout-toggle, which cycled
+# through its own set of layouts. This flips between the two layouts Hyprland
+# ships that most people choose between:
+#
+#   dwindle  new windows split the focused window, recursively
+#   master   one large master pane on the left, a stack of others on the right
+#
+# general:layout is a keyword, not a dispatcher, so this goes through
+# `hyprctl keyword`.
+#
+# Bound to SUPER + L.
+
+set -euo pipefail
+
+# `getoption ... -j` returns JSON, and .str holds the current value.
+current=$(hyprctl getoption general:layout -j | jq -r '.str')
+
+case $current in
+  dwindle) next=master ;;
+  master)  next=dwindle ;;
+  # Anything unexpected: fall back to dwindle rather than doing nothing.
+  *)       next=dwindle ;;
+esac
+
+hyprctl keyword general:layout "$next" >/dev/null
+
+notify-send -a layout -i view-grid "Layout: $next"

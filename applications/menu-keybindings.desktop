@@ -1,0 +1,12 @@
+[Desktop Entry]
+# ~/.local/share/applications/menu-keybindings.desktop
+Type=Application
+Name=Keybindings Cheatsheet
+GenericName=Reference
+Comment=Every Hyprland keybinding, grouped and searchable
+Exec=foot --app-id=float-menu-keybindings -e menu-keybindings
+Icon=preferences-desktop-keyboard-shortcuts
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=keys;hotkeys;shortcuts;keybindings;cheatsheet;help;hyprland;
+StartupNotify=false

@@ -1,0 +1,11 @@
+# ~/.config/xdg-terminals.list — which terminal is "the" terminal.
+#
+# Read by xdg-terminal-exec, which is what any "open in terminal" action goes
+# through: the picker scripts, file managers, and desktop entries that declare
+# Terminal=true. Listed in order of preference; the first one installed wins.
+#
+# foot is listed second because it is what the picker windows use — they pass
+# their own --app-id explicitly, so this list does not affect them.
+
+ghostty.desktop
+foot.desktop

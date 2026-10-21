@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# wallpaper-picker — choose a wallpaper and apply it immediately.
+#
+# Reads ~/Pictures/wallpapers, which install-chroot.sh fills with the four images
+# from the repo. hyprpaper does the actual drawing; this only tells it what to
+# show, over its IPC socket.
+#
+# The chosen path is recorded in ~/.cache/current-wallpaper so wallpaper-cycle
+# continues from here rather than from the top of the list.
+
+set -euo pipefail
+
+DIR="$HOME/Pictures/wallpapers"
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/current-wallpaper"
+
+[[ -d $DIR ]] || { echo "missing directory: $DIR" >&2; exit 1; }
+command -v hyprctl >/dev/null || { echo "hyprctl not found" >&2; exit 1; }
+command -v fzf     >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
+
+# Every image directly in the directory, sorted, so the order is stable between
+# runs and matches wallpaper-cycle's ordering.
+mapfile -t files < <(
+  find "$DIR" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort
+)
+(( ${#files[@]} )) || { echo "no wallpapers in $DIR" >&2; exit 1; }
+
+# chafa renders the highlighted image in the preview pane, so the choice can be
+# made by eye rather than by filename.
+selection=$(
+  printf '%s\n' "${files[@]}" | fzf \
+    --preview 'chafa --size=64x32 --animate=off {}' \
+    --preview-window 'right:55%' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+) || exit 0
+
+[[ -n $selection ]] || exit 0
+
+# Preload, then set. Preloading first avoids a visible flash of the old image
+# while the new one is decoded.
+hyprctl hyprpaper preload "$selection" >/dev/null
+hyprctl hyprpaper wallpaper ",$selection" >/dev/null
+
+install -d "$(dirname "$STATE")"
+printf '%s\n' "$selection" >"$STATE"

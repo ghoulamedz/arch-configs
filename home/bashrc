@@ -1,0 +1,128 @@
+# ~/.bashrc — interactive bash configuration.
+#
+# Nothing here comes from Omarchy: their shell framework is not installed, so the
+# aliases, completions, inputrc and functions it provided are replaced by the
+# stock Arch files and the tools in packages/official.txt.
+
+# ---------------------------------------------------------------------------
+# Interactive shells only
+# ---------------------------------------------------------------------------
+# A non-interactive shell (a script, or `su -c`) must not source prompts, key
+# bindings or tools. Returning early keeps `bash -c` fast and side-effect free.
+case $- in
+  *i*) ;;
+  *) return ;;
+esac
+
+# ---------------------------------------------------------------------------
+# PATH
+# ---------------------------------------------------------------------------
+# ~/Bin is where your own executables go.
+# ~/.local/bin is where arch-configs installs its scripts.
+# Both are checked before being added, so sourcing this file twice does not
+# duplicate entries.
+case ":$PATH:" in
+  *":$HOME/Bin:"*) ;;
+  *) PATH="$HOME/Bin:$PATH" ;;
+esac
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) PATH="$HOME/.local/bin:$PATH" ;;
+esac
+export PATH
+
+# ---------------------------------------------------------------------------
+# History
+# ---------------------------------------------------------------------------
+HISTSIZE=50000
+HISTFILESIZE=50000
+# ignoreboth: do not record duplicates, and do not record a command that starts
+# with a space. erasedups removes earlier copies of a repeated command.
+HISTCONTROL=ignoreboth:erasedups
+# Append rather than truncate, so two open terminals do not overwrite each
+# other's history.
+shopt -s histappend
+shopt -s checkwinsize
+
+# ---------------------------------------------------------------------------
+# Shell options
+# ---------------------------------------------------------------------------
+shopt -s cdspell      # correct small typos in cd arguments
+shopt -s dirspell
+shopt -s globstar     # ** matches directories recursively
+set -o noclobber      # do not clobber files with > (use >| to force)
+
+# ---------------------------------------------------------------------------
+# Prompt
+# ---------------------------------------------------------------------------
+if command -v starship >/dev/null 2>&1; then
+  eval "$(starship init bash)"
+fi
+
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
+# zoxide: smarter cd. `z foo` jumps to the most-used directory matching "foo".
+if command -v zoxide >/dev/null 2>&1; then
+  eval "$(zoxide init bash)"
+fi
+
+# fzf: Ctrl+R history search, Ctrl+T file picker, Alt+C to cd into a directory.
+if [[ -f /usr/share/fzf/key-bindings.bash ]]; then
+  source /usr/share/fzf/key-bindings.bash
+fi
+if [[ -f /usr/share/fzf/completion.bash ]]; then
+  source /usr/share/fzf/completion.bash
+fi
+
+# mise: runtime version manager. Guarded, because it is optional and not yet in
+# use on this machine.
+if command -v mise >/dev/null 2>&1; then
+  eval "$(mise activate bash)"
+fi
+
+# ---------------------------------------------------------------------------
+# Aliases
+# ---------------------------------------------------------------------------
+# eza replaces ls; bat replaces cat. --icons needs the Nerd Font.
+alias ls='eza --icons --group-directories-first'
+alias ll='eza --icons --group-directories-first --long --git'
+alias la='eza --icons --group-directories-first --long --all'
+alias lt='eza --icons --tree --level=2'
+alias cat='bat --paging=never'
+alias catp='bat'
+alias grep='grep --color=auto'
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+
+alias g='git'
+alias lg='lazygit'
+alias ld='lazydocker'
+alias t='tmux attach || tmux new -s main'
+
+alias df='df -h'
+alias du='dua'
+alias free='free -h'
+
+# The whole update story, in one word. Same commands the launcher entry runs.
+alias update='sudo pacman -Syu && paru -Syu'
+
+# The arch-configs scripts.
+alias pkgs='pkg-install'
+alias aur='pkg-aur-install'
+alias keys='menu-keybindings'
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+export EDITOR=nano
+export VISUAL=nano
+export PAGER='less -R'
+export LESS='-R --use-color -Dd+r -Du+b'
+export MANPAGER='less -R --use-color -Dd+r -Du+b'
+
+# Commands that are not worth remembering.
+HISTIGNORE='ls:ll:la:cd:pwd:clear:exit:history'
+export HISTIGNORE

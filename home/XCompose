@@ -1,0 +1,111 @@
+# ~/.XCompose — custom characters reachable with the compose key.
+#
+# The compose key is Caps Lock. It is set by `kb_options = "compose:caps,..."`
+# in ~/.config/hypr/input.lua, and the file is found because envs.lua exports
+# XCOMPOSEFILE pointing here.
+#
+# Read by GTK and Qt applications and by foot and ghostty. To use a sequence:
+# press and release Caps Lock, then type the keys shown, in order.
+#
+# The first line pulls in the system-wide definitions for your locale, so
+# nothing that normally works stops working.
+
+include "%L"
+
+# ===========================================================================
+# Arabic — ligatures and honorifics
+# ===========================================================================
+# Compose, then the letters shown. These are single Unicode codepoints, so they
+# behave as one character for selection and search.
+
+<Multi_key> <a> <l> <l> <a> <h>  : "الله"   # Allah
+<Multi_key> <s> <a> <w>          : "ﷺ"      # U+FDFA  sallallahu alayhi wa sallam
+<Multi_key> <b> <s> <m>          : "﷽"      # U+FDFD  bismillah ar-rahman ar-rahim
+<Multi_key> <j> <a> <l>          : "ﷻ"      # U+FDFB  jalla jalaluhu
+<Multi_key> <m> <u> <h>          : "ﷴ"      # U+FDF4  Muhammad
+<Multi_key> <a> <l> <y>          : "علي"    # Ali
+
+# ===========================================================================
+# Arabic — diacritics (harakat)
+# ===========================================================================
+# Compose, then comma, then the letter shown. Diacritics are combining marks and
+# attach to the character before the cursor.
+
+<Multi_key> <comma> <a>          : "َ"      # fatha
+<Multi_key> <comma> <u>          : "ُ"      # damma
+<Multi_key> <comma> <i>          : "ِ"      # kasra
+<Multi_key> <comma> <s>          : "ْ"      # sukun
+<Multi_key> <comma> <d>          : "ّ"      # shadda
+<Multi_key> <comma> <minus>      : "ٰ"      # superscript alef
+<Multi_key> <comma> <n>          : "ً"      # fathatan
+<Multi_key> <comma> <m>          : "ٌ"      # dammatan
+<Multi_key> <comma> <k>          : "ٍ"      # kasratan
+<Multi_key> <comma> <t>          : "ـ"      # tatweel (kashida)
+
+# ===========================================================================
+# Arabic-Indic digits
+# ===========================================================================
+# Compose, then the digit. The Western digit is still typed normally — this only
+# applies when the compose key was pressed first.
+
+<Multi_key> <0>                  : "٠"
+<Multi_key> <1>                  : "١"
+<Multi_key> <2>                  : "٢"
+<Multi_key> <3>                  : "٣"
+<Multi_key> <4>                  : "٤"
+<Multi_key> <5>                  : "٥"
+<Multi_key> <6>                  : "٦"
+<Multi_key> <7>                  : "٧"
+<Multi_key> <8>                  : "٨"
+<Multi_key> <9>                  : "٩"
+
+# ===========================================================================
+# Emoji
+# ===========================================================================
+# Compose, then m, then the letter. The emoji picker (SUPER + CTRL + E) covers
+# the full set; these are the ones worth having on muscle memory.
+
+<Multi_key> <m> <s>              : "😄"     # smile
+<Multi_key> <m> <c>              : "😂"     # cry / laugh
+<Multi_key> <m> <l>              : "😍"     # love
+<Multi_key> <m> <h>              : "❤️"     # heart
+<Multi_key> <m> <y>              : "👍"     # yes
+<Multi_key> <m> <n>              : "👎"     # no
+<Multi_key> <m> <g>              : "👋"     # greeting
+<Multi_key> <m> <p>              : "🙏"     # pray / thanks
+<Multi_key> <m> <a>              : "💪"     # strength
+<Multi_key> <m> <x>              : "🎉"     # celebrate
+<Multi_key> <m> <1>              : "💯"     # one hundred
+<Multi_key> <m> <t>              : "🥂"     # toast
+<Multi_key> <m> <i>              : "😉"     # wink
+<Multi_key> <m> <o>              : "👌"     # ok
+<Multi_key> <m> <k>              : "😘"     # kiss
+<Multi_key> <m> <e>              : "🙄"     # eyeroll
+<Multi_key> <m> <w>              : "🤞"     # fingers crossed
+<Multi_key> <m> <r>              : "🤘"     # rock
+<Multi_key> <m> <v>              : "✌️"     # victory
+<Multi_key> <m> <f>              : "🖕"     # middle finger
+<Multi_key> <m> <m>              : "💰"     # money
+<Multi_key> <m> <d>              : "🤤"     # drool
+
+# ===========================================================================
+# Typography — French punctuation and general marks
+# ===========================================================================
+# French uses guillemets with a space inside, and these two are what you need
+# for them.
+
+<Multi_key> <less> <less>        : "«"      # left guillemet
+<Multi_key> <greater> <greater>  : "»"      # right guillemet
+<Multi_key> <space> <space>      : " "      # non-breaking space
+<Multi_key> <apostrophe> <apostrophe> : "’" # curly apostrophe
+<Multi_key> <quotedbl> <quotedbl>     : "”" # curly closing quote
+<Multi_key> <minus> <minus>      : "—"      # em dash
+<Multi_key> <minus> <period>     : "–"      # en dash
+<Multi_key> <period> <period>    : "…"      # ellipsis
+<Multi_key> <minus> <greater>    : "→"      # right arrow
+<Multi_key> <less> <minus>       : "←"      # left arrow
+<Multi_key> <equal> <greater>    : "⇒"      # double arrow
+<Multi_key> <numbersign> <numbersign> : "№" # numero sign
+<Multi_key> <d> <e> <g>          : "°"      # degree
+<Multi_key> <o> <c>              : "©"      # copyright
+<Multi_key> <t> <m>              : "™"      # trademark

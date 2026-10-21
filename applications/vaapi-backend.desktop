@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/vaapi-backend.desktop
+#
+# Chooses which VA-API driver the session uses, and can run a single command on
+# the NVIDIA GPU with NVDEC. See the README, section 7.
+Type=Application
+Name=VA-API Backend
+GenericName=Hardware acceleration
+Comment=Choose the video decode driver, or run a command on the NVIDIA GPU
+Exec=foot --app-id=float-vaapi-backend -e vaapi-backend menu
+Icon=video-display
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=vaapi;va-api;nvidia;intel;ihd;nvdec;decode;video;acceleration;prime;
+StartupNotify=false

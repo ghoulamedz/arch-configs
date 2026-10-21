@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/toggle-idle.desktop
+#
+# Acts immediately and reports with a notification, so no terminal is needed.
+Type=Application
+Name=Toggle Keep Awake
+GenericName=Power management
+Comment=Stop or start the idle timer, so the screen will not lock or suspend
+Exec=toggle-idle toggle
+Icon=preferences-system-screensaver
+Terminal=false
+Categories=System;Settings;
+Keywords=keep;awake;idle;inhibit;lock;suspend;screensaver;caffeine;
+StartupNotify=false

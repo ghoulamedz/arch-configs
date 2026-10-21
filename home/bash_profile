@@ -1,0 +1,9 @@
+# ~/.bash_profile — login shells.
+#
+# Read once when bash starts as a login shell: a TTY login, or an SSH session.
+# Everything of substance lives in ~/.bashrc, which is read by every interactive
+# shell, so this file only needs to hand over to it.
+
+if [[ -f ~/.bashrc ]]; then
+  source ~/.bashrc
+fi

@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/audio-output.desktop
+#
+# Opens a picker over the available sinks. With only one sink it says so instead
+# of showing a pointless menu.
+Type=Application
+Name=Audio Output
+GenericName=Sound
+Comment=Choose which speakers or headphones sound comes out of
+Exec=foot --app-id=float-audio-output -e audio-output switch
+Icon=audio-card
+Terminal=false
+Categories=AudioVideo;Settings;
+Keywords=audio;output;sink;speakers;headphones;hdmi;volume;pipewire;
+StartupNotify=false

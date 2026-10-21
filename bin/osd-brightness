@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# osd-brightness <+N%|-N%|N%> — change the panel brightness and show an OSD.
+#
+# Same mechanism as osd-volume: a transient mako notification stands in for the
+# overlay a Wayland compositor cannot provide. A separate synchronous id means a
+# brightness change does not overwrite a volume change already on screen.
+#
+# Bound to the XF86MonBrightness keys.
+
+set -euo pipefail
+
+action=${1:-}
+case $action in
+  +*|-*|*%) ;;
+  *) echo "usage: osd-brightness <+N%|-N%|N%>" >&2; exit 2 ;;
+esac
+
+# brightnessctl takes the value with its sign, e.g. "+5%" or "5%-" or "40%".
+# Normalise "-5%" to "5%-", which is the form brightnessctl expects.
+case $action in
+  -*) brightnessctl set "${action#-}-" >/dev/null ;;
+  *)  brightnessctl set "$action"     >/dev/null ;;
+esac
+
+# Read back the resulting level rather than assuming it.
+percent=$(brightnessctl get)
+maximum=$(brightnessctl max)
+level=$(( maximum > 0 ? percent * 100 / maximum : 0 ))
+
+bar() {
+  local filled=$1 total=10 out='' i
+  for (( i = 0; i < total; i++ )); do
+    if (( i < filled )); then out+='█'; else out+='░'; fi
+  done
+  printf '%s' "$out"
+}
+
+filled=$(( level / 10 ))
+(( filled > 10 )) && filled=10
+
+if   (( level < 34 )); then icon='display-brightness-low'
+elif (( level < 67 )); then icon='display-brightness-medium'
+else                        icon='display-brightness-high'
+fi
+
+notify-send \
+  -a osd \
+  -i "$icon" \
+  -t 1500 \
+  -h string:x-canonical-private-synchronous:brightness \
+  "$(bar "$filled")  ${level}%"

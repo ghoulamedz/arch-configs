@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# pkg-aur-install — fuzzy-finder TUI for installing packages from the AUR.
+#
+# Replaces Omarchy's omarchy-pkg-aur-install. Requires paru.
+# alt-b swaps the preview to the package's PKGBUILD, which is the one thing worth
+# reading before building something from the AUR.
+
+set -euo pipefail
+
+command -v paru >/dev/null || { echo "paru is not installed" >&2; exit 1; }
+
+# paru -Slqa prints the name of every package the AUR knows about.
+# paru -Siia prints the AUR metadata for one; paru -Gpa prints its PKGBUILD.
+mapfile -t chosen < <(
+  paru -Slqa | fzf --multi \
+    --preview 'paru -Siia {1}' \
+    --preview-label='alt-b: PKGBUILD  ·  alt-p: toggle preview  ·  tab: multi-select' \
+    --preview-label-pos='bottom' \
+    --preview-window 'down:65%:wrap' \
+    --bind 'alt-p:toggle-preview' \
+    --bind 'alt-b:change-preview:paru -Gpa {1} | tail -n +5' \
+    --bind 'alt-B:change-preview:paru -Siia {1}' \
+    --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up' \
+    --bind 'alt-k:preview-up,alt-j:preview-down' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+)
+
+(( ${#chosen[@]} )) || exit 0
+
+paru -S --needed "${chosen[@]}"

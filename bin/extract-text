@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#
+# extract-text — OCR a region of the screen and put the text on the clipboard.
+#
+# Replaces Omarchy's omarchy-capture-text, which used tesseract the same way.
+# Bound to SUPER + CTRL + PRINT.
+#
+# Useful for getting text out of a PDF, a video frame, or a screenshot where
+# selecting is impossible.
+
+set -euo pipefail
+
+command -v tesseract >/dev/null || { echo "tesseract is not installed" >&2; exit 1; }
+
+# Scratch file for the capture; removed on any exit.
+tmp=$(mktemp --suffix=.png)
+trap 'rm -f "$tmp"' EXIT
+
+geometry=$(slurp) || exit 0
+grim -g "$geometry" "$tmp"
+
+# `tesseract <file> -` writes the recognised text to stdout instead of a file.
+text=$(tesseract "$tmp" - 2>/dev/null || true)
+
+# Nothing recognised — say so rather than copying an empty clipboard, which would
+# silently destroy whatever was there.
+if [[ -z ${text//[[:space:]]/} ]]; then
+  notify-send -a ocr -i dialog-warning "No text found" "Nothing recognisable in that region."
+  exit 0
+fi
+
+printf '%s' "$text" | wl-copy
+
+# Show the beginning of what was captured, so it is obvious it worked.
+notify-send -a ocr -i edit-copy "Text copied" "$(printf '%s' "$text" | head -c 200)"

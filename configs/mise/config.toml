@@ -1,0 +1,14 @@
+# ~/.config/mise/config.toml — global runtime versions.
+# Reference: https://mise.jdx.dev/configuration.html
+#
+# Deliberately empty. mise is installed so it is available, but this setup does
+# not depend on it. Add tools here as you adopt it, for example:
+#
+#   [tools]
+#   node   = "lts"
+#   python = "3.12"
+#
+# Project-level versions belong in a .mise.toml at the root of each project,
+# which overrides whatever is set here.
+
+[tools]
