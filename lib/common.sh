@@ -135,7 +135,7 @@ backup_once() {
 # A unit whose file is absent is skipped with a warning, so a missing optional
 # package degrades to a warning instead of aborting the whole install.
 enable_service() {
-  local u unit target wants_dir
+  local u unit
   for u in "$@"; do
     case $u in
       *.*) unit=$u ;;          # already suffixed (.service, .timer, .socket…)
@@ -150,19 +150,8 @@ enable_service() {
       skip "already enabled: $unit"
       continue
     fi
-
-    # `systemctl enable` talks to D-Bus, which is not running inside the chroot
-    # (no systemd PID 1), so it dies with
-    # "org.freedesktop.DBus.Error.ServiceUnknown: ...systemd1". Never call it
-    # here — enable units purely as symlinks under /etc/systemd/system, which
-    # is all `systemctl enable` does anyway.
-    target=$(grep -hE '^WantedBy=' /usr/lib/systemd/system/$unit /etc/systemd/system/$unit 2>/dev/null \
-      | head -n1 | cut -d= -f2- | tr -d '[:space:]' || true)
-    target=${target:-multi-user.target}
-    wants_dir=/etc/systemd/system/${target}.wants
-    mkdir -p "$wants_dir"
-    ln -sf "/usr/lib/systemd/system/$unit" "$wants_dir/$unit"
-    log "enabled: $unit -> ${target}.wants"
+    systemctl enable "$unit"
+    log "enabled: $unit"
   done
 }
 
