@@ -24,7 +24,7 @@ fi
 # In any case, the ERR trap below prints the file:line of the command that
 # died, so a failed install tells you exactly where to look instead of stopping
 # silently in the middle of a long run.
-[[ ${ARCH_CONFIGS_DEBUG:-} == 1 ]] && set -x
+set -x  # debug tracing on by default; set ARCH_CONFIGS_DEBUG=0 to disable
 
 # die_report — ERR trap: report where the script failed, then exit with the
 # same exit code. Triggered by `set -e` when a command returns non-zero
@@ -151,26 +151,18 @@ enable_service() {
       continue
     fi
 
-    # `systemctl enable` talks to D-Bus. Inside the chroot there is no systemd
-    # PID 1, so it dies with
-    # "org.freedesktop.DBus.Error.ServiceUnknown: ...systemd1". `--root=/`
-    # makes it operate on the filesystem only (want symlinks under
-    # /etc/systemd/system). If a systemd build still insists on the bus, fall
-    # back to creating the WantedBy symlink by hand.
-    if systemctl enable --root=/ "$unit" >/dev/null 2>&1; then
-      log "enabled: $unit"
-    elif systemctl enable "$unit" >/dev/null 2>&1; then
-      log "enabled: $unit"
-    else
-      warn "systemctl enable $unit failed (no systemd bus?) — enabling by symlink"
-      target=$(grep -hE '^WantedBy=' /usr/lib/systemd/system/$unit /etc/systemd/system/$unit 2>/dev/null \
-        | head -n1 | cut -d= -f2- | tr -d '[:space:]' || true)
-      target=${target:-multi-user.target}
-      wants_dir=/etc/systemd/system/${target}.wants
-      mkdir -p "$wants_dir"
-      ln -sf "/usr/lib/systemd/system/$unit" "$wants_dir/$unit"
-      log "enabled by symlink: $unit -> ${target}.wants"
-    fi
+    # `systemctl enable` talks to D-Bus, which is not running inside the chroot
+    # (no systemd PID 1), so it dies with
+    # "org.freedesktop.DBus.Error.ServiceUnknown: ...systemd1". Never call it
+    # here — enable units purely as symlinks under /etc/systemd/system, which
+    # is all `systemctl enable` does anyway.
+    target=$(grep -hE '^WantedBy=' /usr/lib/systemd/system/$unit /etc/systemd/system/$unit 2>/dev/null \
+      | head -n1 | cut -d= -f2- | tr -d '[:space:]' || true)
+    target=${target:-multi-user.target}
+    wants_dir=/etc/systemd/system/${target}.wants
+    mkdir -p "$wants_dir"
+    ln -sf "/usr/lib/systemd/system/$unit" "$wants_dir/$unit"
+    log "enabled: $unit -> ${target}.wants"
   done
 }
 
