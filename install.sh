@@ -56,10 +56,14 @@ check_network() {
   fi
 }
 
-# check_mounts — verify the layout this installer assumes. The subvolume names
-# are not cosmetic: @ is what snapper snapshots, @var_log is required by
-# grub-btrfs for read-only snapshot boots, and @pkg/@docker keep the pacman
-# cache and docker layers out of snapshots.
+# check_mounts — verify the layout this installer assumes.
+#
+# The subvolume checks use findmnt's resolved *mount point*, not `--target`'s
+# "does some mount cover this path" answer. `findmnt --target /mnt/var/lib/containerd`
+# succeeds even when nothing is mounted there, because the mount at /mnt covers
+# the path — which is why the old check never warned about a missing @docker.
+#
+# Verify only. Mounting and subvolume creation are yours to do (README §4-§5).
 check_mounts() {
   local root_fstype root_opts
   root_fstype=$(findmnt -n -o FSTYPE --target "$TARGET" 2>/dev/null || true)
@@ -69,22 +73,31 @@ check_mounts() {
   [[ $root_opts == *subvol=/@* ]] || die "$TARGET is not mounted with subvol=/@ (found: $root_opts)"
   log "root: btrfs subvol=/@"
 
-  findmnt -n --target "$TARGET/boot" >/dev/null 2>&1 \
-    || die "$TARGET/boot is not mounted — mount the ESP there before running this"
+  local boot_target
+  boot_target=$(findmnt -n -o TARGET --target "$TARGET/boot" 2>/dev/null || true)
+  [[ $boot_target == "$TARGET/boot" ]] \
+    || die "$TARGET/boot is not a mountpoint — mount the ESP there before running this"
   local boot_fstype
   boot_fstype=$(findmnt -n -o FSTYPE --target "$TARGET/boot")
   [[ $boot_fstype == vfat ]] || die "$TARGET/boot is not vfat (found: $boot_fstype)"
   log "boot: vfat ESP"
 
-  # These three are strongly recommended, not required. Warn rather than abort:
-  # without them the install still works, but snapshots will pin the pacman
-  # cache and docker layers, and grub-btrfs cannot boot snapshots read-only.
-  local sub
-  for sub in /var/log /var/cache/pacman/pkg /var/lib/docker; do
-    if findmnt -n --target "$TARGET$sub" >/dev/null 2>&1; then
-      log "separate subvolume: $sub"
+  # These are strongly recommended, not required. Warn rather than abort: without
+  # them the install still works, but snapshots pin the pacman cache, containerd's
+  # content store and the logs, and grub-btrfs cannot boot snapshots read-only.
+  #
+  # This machine mounts the @docker subvolume at /var/lib/containerd, so that is
+  # the path checked here. /var/lib/docker is deliberately NOT checked and NOT
+  # mentioned: it stays inside @ on this layout. Only the mount is verified — the
+  # installer never creates, formats or mounts anything itself.
+  local -a wanted=(/var/log /var/cache/pacman/pkg /var/lib/containerd)
+  local sub resolved
+  for sub in "${wanted[@]}"; do
+    resolved=$(findmnt -n -o TARGET --target "$TARGET$sub" 2>/dev/null || true)
+    if [[ $resolved == "$TARGET$sub" ]]; then
+      log "separate mount: $sub ($(findmnt -n -o SOURCE --target "$TARGET$sub"))"
     else
-      warn "$sub is not a separate subvolume — it will be captured by snapshots"
+      warn "$sub is not a separate mount (resolves to ${resolved:-nothing}) — it will be captured by snapshots"
     fi
   done
 }
@@ -104,39 +117,66 @@ check_repo() {
 # do_pacstrap — install every package in official.txt into the new root.
 #   -K  initialise the pacman keyring on the target (needed for a fresh root)
 #   -c  use the host's package cache, which on the ISO is the offline mirror
-# Reading the list with $(<file) word-splits on whitespace, so blank lines and
-# multiple names per line would both work; the file uses one name per line.
+#
+# Idempotency: the old check was "is /var/lib/pacman/local non-empty", which is
+# true after a pacstrap that died on package 40 of 176. Instead ask pacman on the
+# TARGET which of the listed packages are missing and only re-run when there is
+# something to do. `pacstrap` with --needed would also work, but asking first
+# avoids a multi-minute no-op.
 do_pacstrap() {
-  # Idempotent: if the target already has a populated pacman database, the
-  # packages are in. Re-running pacstrap would just re-download and reinstall.
-  if [[ -d $TARGET/var/lib/pacman/local ]] && (( $(ls -1A $TARGET/var/lib/pacman/local 2>/dev/null | wc -l) > 0 )); then
-    skip "pacstrap already done (pacman db present on $TARGET)"
-    return 0
-  fi
-  local -a pkgs
+  local -a pkgs=() missing=() p
   mapfile -t pkgs < <(grep -v '^[[:space:]]*$' "$HERE/packages/official.txt")
-  log "pacstrap: ${#pkgs[@]} packages"
-  pacstrap -K $TARGET "${pkgs[@]}"
+  (( ${#pkgs[@]} )) || die "packages/official.txt is empty"
+
+  if [[ -d $TARGET/var/lib/pacman/local ]]; then
+    for p in "${pkgs[@]}"; do
+      pacman --root "$TARGET" --dbpath "$TARGET/var/lib/pacman" -Qq "$p" >/dev/null 2>&1 \
+        || missing+=("$p")
+    done
+    if (( ${#missing[@]} == 0 )); then
+      skip "all ${#pkgs[@]} official packages already installed on $TARGET"
+      return 0
+    fi
+    warn "${#missing[@]} of ${#pkgs[@]} packages missing on $TARGET — resuming pacstrap"
+    log "missing: ${missing[*]}"
+    run "pacstrap $TARGET (resume)" -- pacstrap -K "$TARGET" "${pkgs[@]}"
+  else
+    log "pacstrap: ${#pkgs[@]} packages (fresh root)"
+    run "pacstrap $TARGET" -- pacstrap -K "$TARGET" "${pkgs[@]}"
+  fi
 }
 
 # do_fstab — generate /mnt/etc/fstab from the live mount table.
 # -U writes UUID= rather than device paths, which is what you want for NVMe.
 # This file is never hand-edited afterwards: grub-btrfs parses its mount options
 # to build the rootflags for snapshot boot entries.
+#
+# Written afresh ("") rather than appended (">>"): genfstab emits its own header,
+# so appending to a partial file produced duplicate entries and duplicate headers.
 do_fstab() {
-  if [[ -f $TARGET/etc/fstab ]] && grep -qs 'subvol=/' "$TARGET/etc/fstab"; then
+  if [[ -s $TARGET/etc/fstab ]] && grep -qs 'subvol=/@' "$TARGET/etc/fstab"; then
     skip "fstab already generated"
     return 0
   fi
-  genfstab -U "$TARGET" >>"$TARGET/etc/fstab"
+  [[ -f $TARGET/etc/fstab ]] && backup_once "$TARGET/etc/fstab"
+  local tmp; tmp=$(mktemp)
+  # genfstab writes to stdout, so capture it, show it, then install it.
+  run "genfstab -U $TARGET" -- sh -c "genfstab -U '$TARGET' | tee '$tmp'"
+  write_file "$TARGET/etc/fstab" 0644 root:root <"$tmp"
+  rm -f "$tmp"
   log "wrote: $TARGET/etc/fstab"
 }
 
 # do_stage — copy the repo into the new root. .git is kept on purpose so the
-# installed system can `git pull` later.
+# installed system can `git pull` later. Deleted-in-repo files are removed from
+# the staged copy so a resumed install never runs a stale script.
 do_stage() {
   mkdir -p "$STAGED"
-  cp -a "$HERE/." "$STAGED/"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete --exclude '.git/objects/pack/tmp*' "$HERE/" "$STAGED/"
+  else
+    cp -a "$HERE/." "$STAGED/"
+  fi
   log "staged repo: $HERE -> $STAGED"
 }
 
@@ -147,9 +187,15 @@ do_stage() {
 # do_chroot — hand over to install-chroot.sh with /mnt as the new root.
 # arch-chroot bind-mounts /etc/resolv.conf and the kernel filesystems, so the
 # chroot has working DNS (needed for the AUR step) and /proc, /sys, /dev.
+#
+# If the chroot is interrupted, arch-chroot cleans up its own bind mounts on
+# SIGINT/SIGTERM but not on SIGKILL. The cleanup trap below makes a Ctrl-C exit
+# leave /mnt in a state you can umount.
 do_chroot() {
-  [[ -x $STAGED/install-chroot.sh ]] || chmod +x "$STAGED/install-chroot.sh"
-  arch-chroot "$TARGET" /root/arch-configs/install-chroot.sh
+  chmod +x "$STAGED/install-chroot.sh"
+  [[ -x $STAGED/lib/common.sh ]] || chmod +x "$STAGED/lib/common.sh" 2>/dev/null || true
+  run "arch-chroot $TARGET install-chroot.sh" -- \
+    arch-chroot "$TARGET" /root/arch-configs/install-chroot.sh
 }
 
 # ---------------------------------------------------------------------------
@@ -175,12 +221,20 @@ Then, once you are logged in at SDDM:
 
 Rollback: the installer took a "post-install" snapshot, so the first entry under
 "Arch Linux snapshots" in the GRUB menu boots this exact state read-only.
+
+If a phase failed, just run ./install.sh again: completed phases are recorded in
+${COMPLETED} and skipped, and the chroot continues where it stopped. To redo
+everything: ARCH_FORCE=1 ./install.sh
+Per-command output: ${ARCH_LOGDIR}/*.log
 EOF
 }
 
 # ---------------------------------------------------------------------------
 
 main() {
+  log "logs: $ARCH_LOGDIR"
+  log "state: $COMPLETED"
+
   section "Preflight"
   need_root
   check_live_iso
@@ -188,17 +242,16 @@ main() {
   check_mounts
   check_network
 
-  section "Installing packages (pacstrap)"
-  do_pacstrap
+  step "pacstrap" do_pacstrap
+  step "fstab"    do_fstab
 
-  section "Generating fstab"
-  do_fstab
-
+  # Staging is deliberately NOT a step: it must run on every invocation, so a
+  # re-run always executes the repo as it is on disk now, not the copy that was
+  # staged before you edited it.
   section "Staging the repo into the new root"
   do_stage
 
-  section "Configuring the new system (chroot)"
-  do_chroot
+  step "chroot"   do_chroot
 
   print_next_steps
 }

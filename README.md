@@ -139,14 +139,19 @@ Ordered, each step idempotent and re-runnable.
    `/etc/snapper/configs/root` in place — the file snapper generated is kept, only
    specific values are changed, so nothing snapper needs can be lost. No manual
    `/.snapshots` creation beforehand — doing that
-   makes `create-config` fail.
+   makes `create-config` fail. Before calling snapper the phase runs its own
+   pre-flight: `/` must be btrfs, `/.snapshots` must be absent both as a directory
+   **and as a subvolume** (snapper refuses in either case), and
+   `/etc/snapper/configs` is created if missing. Each of those has its own error
+   message, so a failure here says what is wrong instead of just "command failed".
 7. **Services.** `systemctl enable` only, never `start` (there is no PID 1 in a
    chroot): `NetworkManager`, `systemd-timesyncd`, `bluetooth`, `sddm`, `thermald`,
    `power-profiles-daemon`, `docker`, `cups`, `ufw`, `plocate-updatedb.timer`,
    `paccache.timer`, `snapper-timeline.timer`, `snapper-cleanup.timer`,
-   `grub-btrfsd`. Each short name is normalised to `<name>.service` before the
-   existence check — unit *files* always carry a suffix, so testing the bare name
-   would silently skip nine of the thirteen and leave the machine with no sddm.
+   `grub-btrfsd` — fourteen units. Each short name is normalised to
+   `<name>.service` before the existence check — unit *files* always carry a
+   suffix, so testing the bare name would silently skip nine of the fourteen and
+   leave the machine with no sddm.
 8. **Firewall.** `ufw default deny incoming`, `ufw default allow outgoing`,
    `ufw --force enable`. Enabling the unit alone applies no policy; without this the
    machine would carry a firewall package and no rules.
@@ -189,6 +194,45 @@ login`, verify the SDDM session, first wallpaper). Does not unmount; you run
   filtering from first boot; the per-application rules are yours to add in `gufw`.
   Docker bypasses ufw by design — accepted.
 - Add a printer, log into GitHub, or authenticate anything.
+
+### Verbosity, logs, and resuming after a failure
+
+There is no quiet flag and no debug flag to turn on: the installer is always at
+maximum verbosity.
+
+- `set -x` is always on, with
+  `PS4='+${BASH_SOURCE[0]##*/}:${LINENO}:${FUNCNAME[0]:-main} '`, so every command
+  is traced with the file, line and function that ran it.
+- `set -E` (errtrace) is set on purpose. Without it bash does **not** run the
+  `ERR` trap for a command that fails *inside a function*, and `set -e` then exits
+  silently. Every phase of this installer is a function, so without `-E` a failure
+  in `configure_snapper()` would kill the run with no message at all.
+- Every external command goes through `run <description> -- <cmd>`, which streams
+  its combined stdout+stderr live **and** tees it to
+  `/var/log/arch-configs/<description>.log` (whole session appended to
+  `session.log`). When a command fails, the last 40 lines of *that command's own
+  output* are printed under the error, together with the exit code, the command
+  line and the log path.
+- Commands that are only probes (`findmnt`, `pacman -Qq`, `passwd -S`, `id`,
+  `command -v`) keep their output suppressed; they exist to produce a boolean.
+  Everything that changes the system prints in full — no `>/dev/null` on
+  `grub-mkconfig`, `mkinitcpio`, `ufw`, `snapper create`, `fc-cache` or `pacman`.
+
+Resuming: each phase runs through `step <name> <function>`, which appends its name
+to `/var/lib/arch-configs/completed` once it succeeds. Re-running `install.sh`
+after any failure therefore skips finished phases, and re-enters the chroot to
+continue at the first incomplete one (the chroot keeps its own state file inside
+`/mnt/var/lib/arch-configs/`). Independently of that bookkeeping, every phase is
+written to be idempotent — it inspects state before acting — so even a forced
+re-run converges instead of duplicating. `ARCH_FORCE=1 ./install.sh` ignores the
+state file and re-runs everything.
+
+Mount check: `check_mounts()` verifies that `/var/log`, `/var/cache/pacman/pkg` and
+`/var/lib/containerd` are their own mounts, using findmnt's resolved `TARGET` (the
+old `findmnt --target` call always succeeded, because `/mnt` covers the path). On
+this machine the `@docker` subvolume is mounted at `/var/lib/containerd`, so that
+is the path verified; `/var/lib/docker` stays inside `@` and is not checked. The
+check is read-only — the installer never creates, mounts or formats anything.
 
 ---
 
@@ -663,7 +707,7 @@ btrfs subvolume create /mnt/@              # root; this is what snapper snapshot
 btrfs subvolume create /mnt/@home          # your data, excluded from rollbacks
 btrfs subvolume create /mnt/@var_log       # grub-btrfs needs this for read-only snapshot boots
 btrfs subvolume create /mnt/@pkg           # keeps the pacman cache out of snapshots
-btrfs subvolume create /mnt/@docker        # keeps docker image layers out of snapshots
+btrfs subvolume create /mnt/@docker        # keeps container data out of snapshots
 btrfs subvolume list /mnt                  # verify: 5 subvolumes, all top level 5
 
 # make @ the filesystem default subvolume, so GRUB boots it with no rootflags
@@ -677,10 +721,31 @@ mount -o "$OPT,subvol=/@"        /dev/nvme1n1p2 /mnt
 mount -o "$OPT,subvol=/@home"    --mkdir /dev/nvme1n1p2 /mnt/home
 mount -o "$OPT,subvol=/@var_log" --mkdir /dev/nvme1n1p2 /mnt/var/log
 mount -o "$OPT,subvol=/@pkg"     --mkdir /dev/nvme1n1p2 /mnt/var/cache/pacman/pkg
-mount -o "$OPT,subvol=/@docker"  --mkdir /dev/nvme1n1p2 /mnt/var/lib/docker
+mount -o "$OPT,subvol=/@docker"  --mkdir /dev/nvme1n1p2 /mnt/var/lib/containerd
 mount --mkdir /dev/nvme1n1p1 /mnt/boot     # ESP last, into the empty root
 findmnt -R /mnt                            # must show 6 mounts before continuing
+```
 
+`@docker` is mounted at **`/var/lib/containerd`** on this machine — that is the
+layout the preflight verifies. It only *checks* that path; it never creates,
+formats or mounts anything (mounting is §4-§5, done by hand). `/var/lib/docker`
+stays inside `@` and is intentionally not checked.
+
+#### Verifying the container subvolume mount
+
+`@docker` is mounted at `/var/lib/containerd`. Because the preflight only warns on
+a missing mount, check it yourself before running `install.sh`:
+
+```bash
+findmnt -n -o TARGET  --target /mnt/var/lib/containerd   # must print /mnt/var/lib/containerd
+findmnt -n -o SOURCE  --target /mnt/var/lib/containerd   # the btrfs device
+findmnt -n -o OPTIONS --target /mnt/var/lib/containerd   # must contain subvol=/@docker
+```
+
+If it prints `/mnt` instead, the directory is still part of `@` — it is not mounted.
+Mounting it is your step (§5), not the installer's.
+
+```bash
 # ---------- 6. install ----------------------------------------------------
 git clone https://github.com/ghoulamedz/arch-configs /root/arch-configs
 cd /root/arch-configs

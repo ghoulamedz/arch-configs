@@ -29,7 +29,9 @@ HOST_NAME=medo-box                                    # /etc/hostname
 TIMEZONE=Africa/Tunis                                 # /etc/localtime
 LANG_VALUE=en_US.UTF-8                                # global LANG
 LOCALES=(en_US.UTF-8 fr_FR.UTF-8 ar_EG.UTF-8)         # generated locales
-TTY_KEYMAP=fr-pc                                      # console keymap (AZERTY)
+                                                      # (console keymap lives in
+                                                      #  system/vconsole.conf, the
+                                                      #  single source of truth)
 GIT_NAME=ghoulamedz                                   # ~/.gitconfig user.name
 GIT_EMAIL=mluke4120@gmail.com                         # ~/.gitconfig user.email
 
@@ -67,6 +69,7 @@ SERVICES=(
 # package and is 500 lines of commented candidates.
 set_locales() {
   local loc escaped
+  local changed=0
   for loc in "${LOCALES[@]}"; do
     escaped=${loc//./\\.}                 # escape the dot so it is a literal dot
     if grep -qE "^${escaped}[[:space:]]+UTF-8" /etc/locale.gen; then
@@ -74,9 +77,22 @@ set_locales() {
     else
       sed -i -E "s|^#[[:space:]]*(${escaped})[[:space:]]+UTF-8|\1 UTF-8|" /etc/locale.gen
       log "enabled locale: $loc"
+      changed=1
     fi
   done
-  locale-gen
+
+  # locale-gen is the slow part (it compiles the whole archive). Skip it when the
+  # locales are already built and nothing was uncommented this run, so a resumed
+  # install does not spend a minute here again.
+  local l built=1
+  for l in "${LOCALES[@]}"; do
+    [[ -s /usr/lib/locale/$l/locale-archive ]] || built=0
+  done
+  if (( ! changed && built )); then
+    skip "locales already generated"
+    return 0
+  fi
+  run "locale-gen (${LOCALES[*]})" -- locale-gen
 }
 
 # set_locale_conf — the global locale. LANGUAGE is deliberately NOT set: gettext
@@ -92,9 +108,14 @@ EOF
 # A symlink rather than `timedatectl set-timezone`, because there is no running
 # systemd inside the chroot.
 set_timezone() {
-  ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
-  log "timezone: $TIMEZONE"
-  hwclock --systohc || warn "hwclock --systohc failed; run it after first boot"
+  if [[ $(readlink -f /etc/localtime 2>/dev/null || true) == "/usr/share/zoneinfo/$TIMEZONE" ]]; then
+    skip "timezone already set: $TIMEZONE"
+  else
+    ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
+    log "timezone: $TIMEZONE"
+  fi
+  # hwclock legitimately fails inside a chroot (no RTC access there).
+  hwclock --systohc || warn "hwclock --systohc failed (expected in a chroot); it is set on first boot"
 }
 
 # set_console — the TTY keymap. fr-pc is the PC-style French AZERTY layout, which
@@ -135,15 +156,26 @@ create_user() {
     # which is locked. If a previous run was interrupted between useradd and
     # passwd, a naive `skip` here would leave the account permanently
     # unloggable — with no root password either, recovery would need a live USB.
-    # `passwd -S` reports L (locked) or NP (no password) for exactly this case.
-    if passwd -S "$USER_NAME" 2>/dev/null | awk '{exit !($2 == "L" || $2 == "NP")}'; then
-      warn "$USER_NAME exists but has no usable password — setting it now"
-      passwd "$USER_NAME"
-    else
-      skip "user exists: $USER_NAME"
-    fi
+    # Field 2 of `passwd -S` is P (usable), L (locked) or NP (no password).
+    # Read it into a variable rather than piping to awk and interpreting awk's
+    # exit status, which conflates "no output" with "has a password".
+    local pw_status
+    pw_status=$(passwd -S "$USER_NAME" 2>/dev/null | awk 'NR==1{print $2}') || pw_status=''
+    case ${pw_status:-unknown} in
+      P)
+        skip "user exists with a usable password: $USER_NAME"
+        ;;
+      L|NP)
+        warn "$USER_NAME exists but is not loggable (status: $pw_status) — setting the password now"
+        passwd "$USER_NAME"
+        ;;
+      *)
+        warn "cannot determine password status of $USER_NAME (got: '${pw_status}') — setting it to be safe"
+        passwd "$USER_NAME"
+        ;;
+    esac
   else
-    useradd -m -s /bin/bash "$USER_NAME"
+    run "useradd -m -s /bin/bash $USER_NAME" -- useradd -m -s /bin/bash "$USER_NAME"
     log "created user: $USER_NAME"
     printf '\n  Set the password for %s:\n' "$USER_NAME"
     passwd "$USER_NAME"
@@ -235,13 +267,40 @@ set_keyring_pam() {
 # build_initramfs — regenerate every kernel image. The drop-ins written above add
 # btrfs and the NVIDIA modules for early KMS. This must run after nvidia-open is
 # installed (it is, from pacstrap) or the MODULES entries would fail to resolve.
+#
+# The old check was "if any initramfs-*.img exists, skip" — which silently kept a
+# STALE image after a kernel update or after a new drop-in was written. Compare
+# the drop-ins' and mkinitcpio.conf's mtime against the images instead, and
+# rebuild when any of them is newer.
 build_initramfs() {
-  # Idempotent: if initramfs images already exist, the image build has run.
-  if ls /boot/initramfs-*.img >/dev/null 2>&1; then
-    skip "initramfs images already present"
-    return 0
+  local -a images=() sources=(
+    /etc/mkinitcpio.conf
+    /etc/mkinitcpio.conf.d/*.conf
+  )
+  mapfile -t images < <(compgen -G '/boot/initramfs-*.img' || true)
+
+  local src newest_conf=0 img_mtime=0
+  for src in "${sources[@]}"; do
+    [[ -f $src ]] || continue
+    local m; m=$(stat -c %Y "$src")
+    (( m > newest_conf )) && newest_conf=$m
+  done
+
+  if (( ${#images[@]} )); then
+    local img
+    for img in "${images[@]}"; do
+      local m; m=$(stat -c %Y "$img")
+      # the OLDEST image is what matters: a half-regenerated /boot must be redone
+      (( img_mtime == 0 || m < img_mtime )) && img_mtime=$m
+    done
+    if (( img_mtime > newest_conf )); then
+      skip "initramfs images are newer than their config"
+      return 0
+    fi
+    warn "initramfs is stale (config newer than image) — rebuilding"
   fi
-  mkinitcpio -P
+
+  run "mkinitcpio -P (all kernels)" -- mkinitcpio -P
 }
 
 # ---------------------------------------------------------------------------
@@ -259,13 +318,21 @@ install_grub() {
   if [[ -f /boot/EFI/GRUB/grubx64.efi ]]; then
     skip "GRUB already installed to the ESP"
   else
-    # Avoid polluting the EFI NVRAM boot menu with duplicate GRUB entries on
-    # reruns: only register a new boot entry if one for GRUB is not already there.
-    if efibootmgr 2>/dev/null | grep -qi 'GRUB'; then
-      grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --no-nvram
-      log "GRUB installed to the ESP (NVRAM entry already exists)"
+    # Only skip the NVRAM write when a GRUB entry already exists. Match the label
+    # field exactly: `grep -qi GRUB` also matches "GRUB" inside another distro's
+    # description, or a removable-media path, and would leave this system with no
+    # boot entry at all.
+    local have_entry=0
+    if efibootmgr 2>/dev/null | sed -n 's/^Boot[0-9A-Fa-f]*\*\? \([^\t]*\).*/\1/p' | grep -qxF 'GRUB'; then
+      have_entry=1
+    fi
+    if (( have_entry )); then
+      run "grub-install (NVRAM entry exists, --no-nvram)" -- \
+        grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --no-nvram
+      log "GRUB installed to the ESP (kept the existing NVRAM entry)"
     else
-      grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+      run "grub-install (registering NVRAM entry)" -- \
+        grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
       log "GRUB installed to the ESP (NVRAM entry registered)"
     fi
   fi
@@ -282,7 +349,7 @@ install_grub() {
     die "/etc/default/grub sets rootflags in GRUB_CMDLINE_LINUX* — remove it; it collides with grub-btrfs's per-snapshot rootflags"
   fi
 
-  grub-mkconfig -o /boot/grub/grub.cfg >/dev/null
+  grub-mkconfig -o /boot/grub/grub.cfg
   log "generated /boot/grub/grub.cfg (no kernel rootflags)"
 }
 
@@ -296,8 +363,18 @@ install_grub() {
 # replacing the file with a partial one that might omit something snapper needs.
 set_snapper_option() {
   local key=$1 value=$2 file=/etc/snapper/configs/root
-  if grep -qE "^${key}=" "$file"; then
-    sed -i -E "s|^${key}=.*|${key}=\"${value}\"|" "$file"
+  # Guard: appending to a nonexistent config would create a file that looks like
+  # a snapper config but is missing every key snapper needs.
+  [[ -f $file ]] || die "snapper config missing: $file (did 'snapper -c root create-config /' succeed?)"
+
+  if grep -qE "^[[:space:]]*${key}=" "$file"; then
+    local current
+    current=$(sed -n -E "s/^[[:space:]]*${key}=[\"']?([^\"']*)[\"']?.*/\1/p" "$file" | head -n1)
+    if [[ $current == "$value" ]]; then
+      skip "snapper: $key already \"$value\""
+      return 0
+    fi
+    sed -i -E "s|^[[:space:]]*${key}=.*|${key}=\"${value}\"|" "$file"
   else
     printf '%s="%s"\n' "$key" "$value" >>"$file"
   fi
@@ -310,11 +387,40 @@ set_snapper_option() {
 # snapshot is small. create-config also creates /.snapshots as its own subvolume
 # inside @, which is why nothing pre-creates that directory: if /.snapshots
 # already existed, create-config would refuse to run.
+#
+# This is the step that used to fail with a bare "command failed". The checks
+# below are ordered so that, when it does fail, you get the reason first:
+#   / must be a btrfs subvolume, /.snapshots must not exist as a directory AND
+#   must not exist as a subvolume, /etc/snapper/configs must be writable.
 configure_snapper() {
   if [[ -f /etc/snapper/configs/root ]]; then
     skip "snapper config already exists for /"
   else
-    snapper -c root create-config /
+    # --- pre-flight diagnostics, each with its own message -------------------
+    local root_fs root_opts
+    capture root_fs   -- findmnt -n -o FSTYPE  --target /
+    capture root_opts -- findmnt -n -o OPTIONS --target /
+    [[ $root_fs == btrfs ]] \
+      || die "snapper needs / on btrfs, found: ${root_fs:-nothing}. Are you running this inside the mounted new root?"
+    [[ $root_opts == *subvol=* ]] \
+      || warn "/ is btrfs but not mounted from a subvolume ($root_opts); create-config will most likely refuse"
+    log "snapper pre-check: / is btrfs ($root_opts)"
+
+    if [[ -e /.snapshots ]]; then
+      if btrfs subvolume list / 2>/dev/null | awk '{print $NF}' | grep -qxF '@/.snapshots' \
+         || btrfs subvolume show /.snapshots >/dev/null 2>&1; then
+        die "/.snapshots already exists as a btrfs subvolume; snapper create-config refuses in that case.
+     Inspect it with: btrfs subvolume show /.snapshots
+     If it is empty and unwanted: btrfs subvolume delete /.snapshots
+     (This is destructive — check 'ls -la /.snapshots' first.)"
+      fi
+      die "/.snapshots already exists as a plain directory; snapper create-config refuses in that case.
+     If it is empty: rmdir /.snapshots
+     If it holds data: move it aside first (mv /.snapshots /.snapshots.old)" 
+    fi
+
+    mkdir -p /etc/snapper/configs
+    run "snapper -c root create-config /" -- snapper -c root create-config /
     log "created snapper config for / (and the /.snapshots subvolume)"
   fi
 
@@ -366,9 +472,13 @@ enable_all_services() {
 # container published with -p is reachable from the LAN regardless of this
 # policy. That is a known and accepted limitation of this setup.
 configure_firewall() {
-  ufw default deny incoming  >/dev/null
-  ufw default allow outgoing >/dev/null
-  ufw --force enable         >/dev/null
+  run "ufw default deny incoming"  -- ufw default deny incoming
+  run "ufw default allow outgoing" -- ufw default allow outgoing
+  if [[ $(ufw status 2>/dev/null | head -n1) == 'Status: active' ]]; then
+    skip "ufw already active (policy re-applied above)"
+  else
+    run "ufw --force enable" -- ufw --force enable
+  fi
   log "ufw: default deny incoming, default allow outgoing, enabled"
 }
 
@@ -380,7 +490,7 @@ configure_firewall() {
 # whole home directory to medo. Ownership matters: a root-owned ~/.config breaks
 # Hyprland, Waybar and every GTK app.
 install_dotfiles() {
-  copy_tree "$REPO/configs" "$USER_HOME/.config"
+  copy_tree "$REPO/configs" "$USER_HOME/.config" "$USER_NAME:$USER_NAME"
 
   # home/ holds files that live directly in ~. gitconfig.tpl is excluded because
   # it is a template, not a config, and is rendered below.
@@ -391,31 +501,32 @@ install_dotfiles() {
   log "installed shell and compose files"
 
   # The scripts, then their launcher entries.
-  copy_tree "$REPO/bin" "$USER_HOME/.local/bin"
-  install -d -m 0755 "$USER_HOME/.local/share/applications"
-  copy_tree "$REPO/applications" "$USER_HOME/.local/share/applications"
+  copy_tree "$REPO/bin" "$USER_HOME/.local/bin" "$USER_NAME:$USER_NAME"
+  install -d -m 0755 -o "$USER_NAME" -g "$USER_NAME" "$USER_HOME/.local/share/applications"
+  copy_tree "$REPO/applications" "$USER_HOME/.local/share/applications" "$USER_NAME:$USER_NAME"
 
   # Static data the scripts read: currently just the emoji list. Installed under
   # ~/.local/share/arch-configs so the list can be edited without touching the
   # script that reads it.
-  install -d -m 0755 "$USER_HOME/.local/share/arch-configs"
-  copy_tree "$REPO/data" "$USER_HOME/.local/share/arch-configs/data"
+  install -d -m 0755 -o "$USER_NAME" -g "$USER_NAME" "$USER_HOME/.local/share/arch-configs"
+  copy_tree "$REPO/data" "$USER_HOME/.local/share/arch-configs/data" "$USER_NAME:$USER_NAME"
 
   # Wallpapers, and the cheatsheet the SUPER+K binding opens.
-  install -d -m 0755 "$USER_HOME/Pictures/wallpapers"
-  copy_tree "$REPO/wallpapers" "$USER_HOME/Pictures/wallpapers"
+  install -d -m 0755 -o "$USER_NAME" -g "$USER_NAME" "$USER_HOME/Pictures/wallpapers"
+  copy_tree "$REPO/wallpapers" "$USER_HOME/Pictures/wallpapers" "$USER_NAME:$USER_NAME"
   install -D -m 0644 "$REPO/keybindings.md" "$USER_HOME/.config/hypr/keybindings.md"
 
   # Render ~/.gitconfig from the template.
   sed -e "s|@GIT_NAME@|$GIT_NAME|" -e "s|@GIT_EMAIL@|$GIT_EMAIL|" \
-    "$REPO/home/gitconfig.tpl" >"$USER_HOME/.gitconfig"
-  chmod 0644 "$USER_HOME/.gitconfig"
-  log "rendered: $USER_HOME/.gitconfig"
+    "$REPO/home/gitconfig.tpl" | write_file "$USER_HOME/.gitconfig" 0644 "$USER_NAME:$USER_NAME"
 
-  # Executables must be executable; everything else stays 0644. find -exec rather
-  # than a glob, so an empty directory cannot turn into a literal-path error.
-  find "$USER_HOME/.local/bin" -type f -exec chmod 0755 {} +
-  find "$USER_HOME/.local/share/applications" -type f -name '*.desktop' -exec chmod 0644 {} +
+  # Executables must be executable; everything else stays 0644. The directory
+  # guard matters: `find` on a missing path exits non-zero and, with errexit,
+  # would abort the whole install.
+  [[ -d $USER_HOME/.local/bin ]] \
+    && find "$USER_HOME/.local/bin" -type f -exec chmod 0755 {} +
+  [[ -d $USER_HOME/.local/share/applications ]] \
+    && find "$USER_HOME/.local/share/applications" -type f -name '*.desktop' -exec chmod 0644 {} +
 
   # Session PATH. The bindings and Waybar call these scripts by bare name, and
   # Hyprland's `exec` and Waybar's `exec` are not interactive bash — so
@@ -440,7 +551,7 @@ EOF
   # /root/.cache/fontconfig (leaving the Arabic stack uncached for medo) and
   # update-desktop-database would leave a root-owned mimeinfo.cache inside the
   # user's home. runuser is used rather than `su -` so no login shell is started.
-  runuser -u "$USER_NAME" -- fc-cache -f >/dev/null
+  runuser -u "$USER_NAME" -- fc-cache -f
   log "font cache rebuilt (as $USER_NAME)"
 
   runuser -u "$USER_NAME" -- update-desktop-database "$USER_HOME/.local/share/applications"
@@ -461,11 +572,13 @@ EOF
 take_first_snapshot() {
   # Substring match, not an exact-line match: snapper pads its columns with
   # spaces, so -x would never match.
-  if snapper -c root list --columns description 2>/dev/null | grep -q 'post-install'; then
+  local descs
+  descs=$(snapper -c root list --columns description 2>/dev/null || true)
+  if grep -q 'post-install' <<<"$descs"; then
     skip "post-install snapshot already exists"
     return 0
   fi
-  snapper -c root create -d 'post-install' >/dev/null
+  run "snapper -c root create -d post-install" -- snapper -c root create -d 'post-install'
   log "created snapshot: post-install"
 
   # Regenerate the boot menu now that a snapshot exists, so the
@@ -474,7 +587,7 @@ take_first_snapshot() {
   # grub-btrfsd only reacts to a *change*, so the first entry would not appear
   # until the first pacman transaction — precisely when a rollback is most
   # likely to be wanted.
-  grub-mkconfig -o /boot/grub/grub.cfg >/dev/null
+  grub-mkconfig -o /boot/grub/grub.cfg
   log "regenerated /boot/grub/grub.cfg with the snapshot submenu"
 }
 
@@ -498,8 +611,8 @@ install_aur() {
     skip "paru already installed"
   else
     log "building paru as $USER_NAME (needs rust + base-devel, both installed)"
-    su - "$USER_NAME" -c \
-      'rm -rf /tmp/paru-build && git clone -q https://aur.archlinux.org/paru.git /tmp/paru-build && cd /tmp/paru-build && makepkg -si --noconfirm'
+    run "makepkg paru (as $USER_NAME)" -- su - "$USER_NAME" -c \
+      'rm -rf /tmp/paru-build && git clone --quiet https://aur.archlinux.org/paru.git /tmp/paru-build && cd /tmp/paru-build && makepkg -si --noconfirm'
   fi
 
   # Build the remaining AUR packages, minus paru itself.
@@ -512,54 +625,47 @@ install_aur() {
 
   log "installing AUR packages: ${rest[*]}"
   # printf %q quotes each name so the su -c command survives the shell hop.
-  su - "$USER_NAME" -c "paru -S --needed --noconfirm --skipreview $(printf '%q ' "${rest[@]}")"
+  run "paru -S ${rest[*]}" -- su - "$USER_NAME" -c \
+    "paru -S --needed --noconfirm --skipreview $(printf '%q ' "${rest[@]}")"
 }
 
 # ---------------------------------------------------------------------------
 
 main() {
-  section "Locale, time and identity"
-  set_locales
-  set_locale_conf
-  set_timezone
-  set_console
-  set_identity
+  log "logs: $ARCH_LOGDIR"
+  log "state: $COMPLETED"
+  (( ${ARCH_FORCE:-0} == 1 )) && warn "ARCH_FORCE=1: every phase will be re-run"
 
-  section "User and sudo"
-  create_user
-  set_sudoers
+  step "locales"             set_locales
+  step "locale-conf"        set_locale_conf
+  step "timezone"           set_timezone
+  step "console-keymap"     set_console
+  step "identity"           set_identity
 
-  section "System files"
-  install_system_files
-  set_pacman_options
-  set_keyring_pam
+  step "user"               create_user
+  step "sudoers"            set_sudoers
 
-  section "Initramfs"
-  build_initramfs
+  step "system-files"       install_system_files
+  step "pacman-options"     set_pacman_options
+  step "keyring-pam"        set_keyring_pam
 
-  section "Bootloader"
-  install_grub
+  step "initramfs"          build_initramfs
+  step "grub"               install_grub
 
-  section "Snapshots"
-  configure_snapper
+  step "snapper"            configure_snapper
 
-  section "Services"
-  enable_all_services
+  step "services"           enable_all_services
+  step "firewall"           configure_firewall
 
-  section "Firewall"
-  configure_firewall
+  step "dotfiles"           install_dotfiles
 
-  section "Dotfiles"
-  install_dotfiles
+  step "first-snapshot"     take_first_snapshot
 
-  section "First snapshot"
-  take_first_snapshot
-
-  section "AUR packages"
-  install_aur
+  step "aur"                install_aur
 
   section "Done"
   log "system configured; returning to install.sh"
+  log "per-command logs: $ARCH_LOGDIR"
 }
 
 main "$@"
