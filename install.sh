@@ -114,6 +114,20 @@ check_repo() {
 # 2-4. pacstrap, fstab, staging
 # ---------------------------------------------------------------------------
 
+# repo_revision — the commit this run is executing. Printed at startup and after
+# staging, because a stale clone is otherwise invisible: install.sh copies $HERE
+# into /mnt/root/arch-configs and the chroot runs that copy, so an old checkout
+# silently runs old code (and old bugs) no matter what you just edited.
+repo_revision() {
+  local rev
+  rev=$(git -C "$HERE" rev-parse --short=12 HEAD 2>/dev/null || true)
+  [[ -n $rev ]] || rev=unknown
+  if [[ -n $(git -C "$HERE" status --porcelain 2>/dev/null) ]]; then
+    rev="$rev+dirty"
+  fi
+  printf '%s' "$rev"
+}
+
 # do_mirrors_iso — rank the OFFICIAL Arch mirrors from the live ISO before
 # pacstrap touches the network. reflector may not exist on the ISO, in which case
 # rank_mirrors() falls back to the official mirror status JSON with curl+python3
@@ -140,15 +154,84 @@ do_mirrors_target() {
   log "copied the ranked mirrorlist to $dst"
 }
 
+# prepare_pacstrap_config — a TEMPORARY pacman config for pacstrap that disables
+# pacman's low-speed download abort.
+#
+# "failed retrieving file ... Operation too slow" is not a mirror problem: it is
+# pacman's LowSpeedLimit/LowSpeedTime check (by default, less than 1 byte/s
+# averaged over 10 s kills the transfer). On a long-haul link to Europe it fires
+# constantly, on perfectly healthy mirrors. `DisableDownloadTimeout` is the
+# documented switch for it (pacman.conf(5)).
+#
+# The config is written to a temp file and handed to `pacstrap -C`, so:
+#   * the live ISO's /etc/pacman.conf is not modified;
+#   * the installed system's /etc/pacman.conf is not modified by this;
+#   * no repository line is read, added or changed — the temp file is a byte
+#     copy of the ISO's config plus one [options] line.
+# If the running pacman does not know the directive, the plain config is used
+# instead (checked with pacman's own parser, not by guessing).
+PACSTRAP_CFG=
+
+prepare_pacstrap_config() {
+  local src=/etc/pacman.conf cfg
+  [[ -f $src ]] || { warn "no $src — pacstrap will use its defaults"; PACSTRAP_CFG=; return 0; }
+  cfg=$(mktemp)
+
+  # Insert the directive immediately after the [options] header: pacman ignores
+  # global options outside that section (the mistake that once put ILoveCandy in
+  # [extra]).
+  awk '{ print } /^[[:space:]]*\[options\][[:space:]]*$/ && !done { print "DisableDownloadTimeout"; done = 1 }' \
+    "$src" >"$cfg"
+
+  if ! grep -q '^DisableDownloadTimeout$' "$cfg"; then
+    warn "$src has no [options] section — using it unchanged for pacstrap"
+    PACSTRAP_CFG=$cfg
+    return 0
+  fi
+
+  local complaints
+  complaints=$(pacman-conf --config "$cfg" 2>&1 >/dev/null | grep -i 'not recognized' || true)
+  if [[ -n $complaints ]]; then
+    warn "this pacman does not support DisableDownloadTimeout ($complaints) — using the plain config"
+    rm -f "$cfg"
+    PACSTRAP_CFG=
+    return 0
+  fi
+
+  PACSTRAP_CFG=$cfg
+  log "pacstrap will use a temp config with DisableDownloadTimeout (your /etc/pacman.conf is untouched)"
+}
+
+# cleanup_pacstrap_config — remove the temp config. Wired into the EXIT trap so
+# it cannot be left behind on a failed run.
+cleanup_pacstrap_config() {
+  [[ -n ${PACSTRAP_CFG:-} && -f $PACSTRAP_CFG ]] && rm -f "$PACSTRAP_CFG"
+  PACSTRAP_CFG=
+}
+
+# _pacstrap_once <args...> — one pacstrap attempt with the temp config if we have
+# one. Separate so the retry loop reads plainly.
+_pacstrap_once() {
+  if [[ -n ${PACSTRAP_CFG:-} ]]; then
+    pacstrap -K -C "$PACSTRAP_CFG" "$@"
+  else
+    pacstrap -K "$@"
+  fi
+}
+
 # do_pacstrap — install every package in official.txt into the new root.
 #   -K  initialise the pacman keyring on the target (needed for a fresh root)
-#   -c  use the host's package cache, which on the ISO is the offline mirror
+#   -C  the temp config from prepare_pacstrap_config()
 #
-# Idempotency: the old check was "is /var/lib/pacman/local non-empty", which is
-# true after a pacstrap that died on package 40 of 176. Instead ask pacman on the
-# TARGET which of the listed packages are missing and only re-run when there is
-# something to do. `pacstrap` with --needed would also work, but asking first
-# avoids a multi-minute no-op.
+# Idempotency: rather than "is /var/lib/pacman/local non-empty" (true after a
+# pacstrap that died on package 40 of 176), ask pacman on the TARGET which of the
+# listed packages are missing and only re-run when there is something to do.
+#
+# Resilience: a failed attempt re-ranks the official mirrors and retries, up to
+# PACSTRAP_ATTEMPTS times. Every attempt is a no-op for packages already
+# installed, so retrying is always safe.
+PACSTRAP_ATTEMPTS=${PACSTRAP_ATTEMPTS:-3}
+
 do_pacstrap() {
   local -a pkgs=() missing=() p
   mapfile -t pkgs < <(grep -v '^[[:space:]]*$' "$HERE/packages/official.txt")
@@ -165,11 +248,31 @@ do_pacstrap() {
     fi
     warn "${#missing[@]} of ${#pkgs[@]} packages missing on $TARGET — resuming pacstrap"
     log "missing: ${missing[*]}"
-    run "pacstrap $TARGET (resume)" -- pacstrap -K "$TARGET" "${pkgs[@]}"
   else
     log "pacstrap: ${#pkgs[@]} packages (fresh root)"
-    run "pacstrap $TARGET" -- pacstrap -K "$TARGET" "${pkgs[@]}"
   fi
+
+  prepare_pacstrap_config
+
+  local attempt=0 rc=0
+  while (( attempt < PACSTRAP_ATTEMPTS )); do
+    attempt=$(( attempt + 1 ))
+    rc=0
+    try_run "pacstrap $TARGET (attempt $attempt/$PACSTRAP_ATTEMPTS)" -- \
+      _pacstrap_once "$TARGET" "${pkgs[@]}" || rc=$?
+    (( rc == 0 )) && break
+    warn "pacstrap attempt $attempt failed (exit $rc)"
+    if (( attempt < PACSTRAP_ATTEMPTS )); then
+      warn "re-ranking the official mirrors, then retrying (already-installed packages are skipped)"
+      rank_mirrors || true
+      sleep 3
+    fi
+  done
+
+  cleanup_pacstrap_config
+  (( rc == 0 )) || die "pacstrap still failing after $PACSTRAP_ATTEMPTS attempts.
+     The failing output is in $ARCH_LOGDIR/pacstrap_*.log
+     Re-running ./install.sh resumes: installed packages are detected and skipped."
 }
 
 # do_fstab — generate /mnt/etc/fstab from the live mount table.
@@ -203,7 +306,7 @@ do_stage() {
   else
     cp -a "$HERE/." "$STAGED/"
   fi
-  log "staged repo: $HERE -> $STAGED"
+  log "staged repo: $HERE -> $STAGED (revision $(repo_revision))"
 }
 
 # ---------------------------------------------------------------------------
@@ -260,6 +363,10 @@ EOF
 # ---------------------------------------------------------------------------
 
 main() {
+  # Remove the temp pacstrap config on every exit path (success, die, Ctrl-C).
+  trap cleanup_pacstrap_config EXIT
+
+  log "arch-configs $(repo_revision)"
   log "logs: $ARCH_LOGDIR"
   log "state: $COMPLETED"
 

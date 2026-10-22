@@ -96,15 +96,40 @@ Directories the script creates that are **not** in the repo:
 1. **Preflight, abort on any failure.** Must be root. Must be on the Arch ISO
    (`/etc/arch-release`). `findmnt` must show `/mnt` as btrfs with `subvol=/@` and
    `/mnt/boot` mounted. Network must be up. `packages/official.txt` must be readable.
-2. `pacstrap -K /mnt $(packages/official.txt)` — installs the base system plus every
-   official package in one transaction, initialising the keyring.
-3. `genfstab -U /mnt >> /mnt/etc/fstab` — generates fstab from the *live* mount table.
+2. **Mirror ranking.** `rank_mirrors` rewrites `/etc/pacman.d/mirrorlist` on the live
+   ISO with the fastest **official** servers measured from this machine, before
+   anything downloads a package. `reflector` ships on the ISO (archiso releng
+   package list), so this normally runs immediately; if it is missing the
+   fallback is the official `archlinux.org/mirrors/status` JSON parsed by
+   `python3`. See “Mirror ranking” below for the trust guarantees.
+3. `pacstrap -K -C <tempconf> /mnt $(packages/official.txt)` — installs the base
+   system plus every official package in one transaction, initialising the keyring.
+   The temp config is a byte copy of the ISO's `/etc/pacman.conf` plus one
+   `[options]` line, `DisableDownloadTimeout`: “Operation too slow. Less than 1
+   byte/s were transferred in the last 10 seconds” is pacman's low-speed abort,
+   not a broken mirror, and on a high-latency link it fires on healthy mirrors.
+   Your `/etc/pacman.conf` is never modified by this (neither the ISO's nor the
+   installed system's).
+4. **Retry.** A failed `pacstrap` re-ranks the official mirrors and retries, up to
+   `PACSTRAP_ATTEMPTS` (default 3). Already-installed packages are skipped each
+   time, so a retry is always safe. On final failure the run stops with the log
+   path and a “re-running resumes” note.
+5. `genfstab -U /mnt > /mnt/etc/fstab` — generates fstab from the *live* mount table.
    Not hand-edited afterwards: `grub-btrfs` parses these exact flags to build the
    `rootflags=` for snapshot boot entries.
-4. `cp -a` the repo to `/mnt/root/arch-configs` so phase 2 can reach it.
-5. `arch-chroot /mnt /root/arch-configs/install-chroot.sh` (arch-chroot bind-mounts
+6. The ranked mirrorlist is copied to `/mnt/etc/pacman.d/mirrorlist` (previous one
+   kept as `.pre-arch-configs`), so the installed system starts with the same
+   ordering even if the chroot re-rank fails.
+7. `rsync -a --delete` (or `cp -a`) the repo to `/mnt/root/arch-configs` so phase 2
+   can reach it. The revision being staged is logged — a stale clone silently runs
+   old code, because the chroot executes that copy, not your working directory.
+8. `arch-chroot /mnt /root/arch-configs/install-chroot.sh` (arch-chroot bind-mounts
    `/etc/resolv.conf`, so the chroot has working DNS).
-6. Prints the remaining steps: `umount -R /mnt` then `reboot`.
+9. Prints the remaining steps: `umount -R /mnt` then `reboot`.
+
+Both phases print `arch-configs <commit>` at startup (and `<commit>+dirty` if the
+working tree has uncommitted changes), so it is always visible which code is
+running.
 
 ### Phase 2 — inside `arch-chroot /mnt`
 
@@ -248,6 +273,41 @@ continue at the first incomplete one (the chroot keeps its own state file inside
 written to be idempotent — it inspects state before acting — so even a forced
 re-run converges instead of duplicating. `ARCH_FORCE=1 ./install.sh` ignores the
 state file and re-runs everything.
+
+### Mirror ranking — official servers only
+
+`rank_mirrors` (in `lib/common.sh`) replaces `/etc/pacman.d/mirrorlist` with an
+ordered list of the fastest reachable servers, measured **from this machine**, so
+distance/latency is handled by measurement rather than by guessing a country.
+
+What it can never do:
+
+- write a server that is not listed on `archlinux.org/mirrors/status`;
+- add, remove, rename or re-point a repository — `pacman.conf` is not touched by
+  this function at all, and no `[cachyos]`, `[endeavouros]`, `[chaotic]` or any
+  other foreign section is ever added;
+- leave you worse off: the previous file is kept as
+  `mirrorlist.pre-arch-configs`, and any failure (no ranker, no network, empty
+  result, fewer than three usable servers) is a warning that keeps the old list.
+
+Ranker preference, all official-path:
+
+1. `rate-mirrors` — the tool CachyOS ships (AUR), if present;
+2. `reflector` — the official Arch package (`[extra]`), present on the live ISO
+   and installed by `packages/official.txt`;
+3. `curl` + `python3` against the official mirror status JSON — needs no extra
+   package, which is why it is the fallback on a bare ISO.
+
+It runs three times: on the ISO before `pacstrap`, onto the new root after
+`pacstrap`, and inside the chroot immediately before `paru` builds the AUR
+packages. `MIRROR_RANKING=0` disables it; `MIRROR_COUNT` (default 20) and
+`MIRROR_PROTOCOL` (default `https`) tune it.
+
+If you still see “Operation too slow” after this, it is pacman's low-speed abort
+rather than a slow mirror — that is handled by `DisableDownloadTimeout` in the
+temporary pacstrap config, and on an installed system it is one line you can add
+to `[options]` yourself (or lower `ParallelDownloads`, which on a high-latency
+link makes each stream slower).
 
 Chroot confirmation: `arch-chroot` runs a command, not an interactive shell, so
 your prompt never changes and there is nothing on screen that says "you are now in

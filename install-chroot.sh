@@ -804,6 +804,7 @@ install_aur() {
 # ---------------------------------------------------------------------------
 
 main() {
+  log "arch-configs $(git -C "$REPO" rev-parse --short=12 HEAD 2>/dev/null || echo unknown) (staged copy)"
   log "logs: $ARCH_LOGDIR"
   log "state: $COMPLETED"
   (( ${ARCH_FORCE:-0} == 1 )) && warn "ARCH_FORCE=1: every phase will be re-run"
