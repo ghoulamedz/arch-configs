@@ -107,10 +107,16 @@ check_repo() {
 # Reading the list with $(<file) word-splits on whitespace, so blank lines and
 # multiple names per line would both work; the file uses one name per line.
 do_pacstrap() {
+  # Idempotent: if the target already has a populated pacman database, the
+  # packages are in. Re-running pacstrap would just re-download and reinstall.
+  if [[ -d $TARGET/var/lib/pacman/local ]] && (( $(ls -1A $TARGET/var/lib/pacman/local 2>/dev/null | wc -l) > 0 )); then
+    skip "pacstrap already done (pacman db present on $TARGET)"
+    return 0
+  fi
   local -a pkgs
   mapfile -t pkgs < <(grep -v '^[[:space:]]*$' "$HERE/packages/official.txt")
   log "pacstrap: ${#pkgs[@]} packages"
-  pacstrap -K "$TARGET" "${pkgs[@]}"
+  pacstrap -K $TARGET "${pkgs[@]}"
 }
 
 # do_fstab — generate /mnt/etc/fstab from the live mount table.

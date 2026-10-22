@@ -25,6 +25,7 @@ rust
 
 grub
 grub-btrfs
+os-prober
 snapper
 snap-pac
 
@@ -96,7 +97,7 @@ blueman
 
 noto-fonts
 noto-fonts-emoji
-ttf-jetbrains-mono-nerd-basic
+ttf-jetbrains-mono-nerd
 ttf-nerd-fonts-symbols
 ttf-scheherazade-new
 inter-font
@@ -163,7 +164,6 @@ mpv
 imv
 qbittorrent
 obsidian
-localsend
 kdenlive
 libreoffice-fresh
 yt-dlp

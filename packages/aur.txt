@@ -5,3 +5,4 @@ ttf-amiri
 ttf-arabeyes-fonts
 herdr-bin
 hunspell-ar
+localsend

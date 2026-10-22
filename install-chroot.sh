@@ -236,6 +236,11 @@ set_keyring_pam() {
 # btrfs and the NVIDIA modules for early KMS. This must run after nvidia-open is
 # installed (it is, from pacstrap) or the MODULES entries would fail to resolve.
 build_initramfs() {
+  # Idempotent: if initramfs images already exist, the image build has run.
+  if ls /boot/initramfs-*.img >/dev/null 2>&1; then
+    skip "initramfs images already present"
+    return 0
+  fi
   mkinitcpio -P
 }
 
@@ -250,8 +255,20 @@ build_initramfs() {
 install_grub() {
   [[ -d /sys/firmware/efi ]] || die "not booted in UEFI mode; this config assumes UEFI + GPT"
 
-  grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-  log "GRUB installed to the ESP"
+  # Idempotent: if the EFI binary is already on the ESP, grub-install has run.
+  if [[ -f /boot/EFI/GRUB/grubx64.efi ]]; then
+    skip "GRUB already installed to the ESP"
+  else
+    # Avoid polluting the EFI NVRAM boot menu with duplicate GRUB entries on
+    # reruns: only register a new boot entry if one for GRUB is not already there.
+    if efibootmgr 2>/dev/null | grep -qi 'GRUB'; then
+      grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --no-nvram
+      log "GRUB installed to the ESP (NVRAM entry already exists)"
+    else
+      grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+      log "GRUB installed to the ESP (NVRAM entry registered)"
+    fi
+  fi
 
   # Assert on the ASSIGNMENT, not on the file's contents. /etc/default/grub's own
   # explanatory comments contain the word rootflags, so `grep 'rootflags' <file>`
@@ -333,6 +350,7 @@ configure_snapper() {
 
 # enable_all_services — enable, never start. There is no PID 1 in a chroot.
 enable_all_services() {
+  log "enabling ${#SERVICES[@]} systemd units"
   enable_service "${SERVICES[@]}"
 }
 

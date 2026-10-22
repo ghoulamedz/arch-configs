@@ -21,10 +21,10 @@ GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3"
 # and initramfs inside each snapshot, so btrfs must be available to GRUB itself.
 GRUB_PRELOAD_MODULES="part_gpt btrfs"
 
-# os-prober stays disabled. The two NTFS volumes on nvme0n1 hold data
-# (Users, Games, models) — there is no Windows installation and no Windows Boot
-# Manager EFI entry on this machine, so there is nothing for it to find.
-GRUB_DISABLE_OS_PROBER=true
+# os-prober enabled: other installed OSes (Windows, other Linux distros)
+# are detected and added to the GRUB menu automatically. Requires the
+# os-prober package (now in packages/official.txt).
+GRUB_DISABLE_OS_PROBER=false
 
 # The snapshot entries appear as a submenu ("Arch Linux snapshots"). Left at the
 # default so they stay grouped instead of flooding the top level.

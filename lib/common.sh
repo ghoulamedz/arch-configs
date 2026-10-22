@@ -20,6 +20,23 @@ else
   _c_reset=''; _c_bold=''; _c_blue=''; _c_green=''; _c_yellow=''; _c_red=''
 fi
 
+# ARCH_CONFIGS_DEBUG=1 — turn on shell tracing (set -x) for a verbose run.
+# In any case, the ERR trap below prints the file:line of the command that
+# died, so a failed install tells you exactly where to look instead of stopping
+# silently in the middle of a long run.
+[[ ${ARCH_CONFIGS_DEBUG:-} == 1 ]] && set -x
+
+# die_report — ERR trap: report where the script failed, then exit with the
+# same exit code. Triggered by `set -e` when a command returns non-zero
+# (commands inside `if`/`||`/`&&` tests intentionally do not trigger it).
+die_report() {
+  local err=$?
+  printf '\n  %sXX%s FAILED: %s:%d (exit %d)\n  running: %s\n\n' \
+    "$_c_red" "$_c_reset" "${BASH_SOURCE[0]:-$0}" "$LINENO" "$err" "$BASH_COMMAND" >&2
+  exit "$err"
+}
+trap die_report ERR
+
 # section <title> — a visible banner between phases, so a long run is readable.
 section() { printf '\n%s==> %s%s\n' "$_c_bold$_c_blue" "$*" "$_c_reset"; }
 
@@ -118,7 +135,7 @@ backup_once() {
 # A unit whose file is absent is skipped with a warning, so a missing optional
 # package degrades to a warning instead of aborting the whole install.
 enable_service() {
-  local u unit
+  local u unit target wants_dir
   for u in "$@"; do
     case $u in
       *.*) unit=$u ;;          # already suffixed (.service, .timer, .socket…)
@@ -131,9 +148,28 @@ enable_service() {
     fi
     if systemctl is-enabled --quiet "$unit" 2>/dev/null; then
       skip "already enabled: $unit"
-    else
-      systemctl enable "$unit" >/dev/null
+      continue
+    fi
+
+    # `systemctl enable` talks to D-Bus. Inside the chroot there is no systemd
+    # PID 1, so it dies with
+    # "org.freedesktop.DBus.Error.ServiceUnknown: ...systemd1". `--root=/`
+    # makes it operate on the filesystem only (want symlinks under
+    # /etc/systemd/system). If a systemd build still insists on the bus, fall
+    # back to creating the WantedBy symlink by hand.
+    if systemctl enable --root=/ "$unit" >/dev/null 2>&1; then
       log "enabled: $unit"
+    elif systemctl enable "$unit" >/dev/null 2>&1; then
+      log "enabled: $unit"
+    else
+      warn "systemctl enable $unit failed (no systemd bus?) — enabling by symlink"
+      target=$(grep -hE '^WantedBy=' /usr/lib/systemd/system/$unit /etc/systemd/system/$unit 2>/dev/null \
+        | head -n1 | cut -d= -f2- | tr -d '[:space:]' || true)
+      target=${target:-multi-user.target}
+      wants_dir=/etc/systemd/system/${target}.wants
+      mkdir -p "$wants_dir"
+      ln -sf "/usr/lib/systemd/system/$unit" "$wants_dir/$unit"
+      log "enabled by symlink: $unit -> ${target}.wants"
     fi
   done
 }
