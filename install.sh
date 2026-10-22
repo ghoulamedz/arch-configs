@@ -114,6 +114,32 @@ check_repo() {
 # 2-4. pacstrap, fstab, staging
 # ---------------------------------------------------------------------------
 
+# do_mirrors_iso — rank the OFFICIAL Arch mirrors from the live ISO before
+# pacstrap touches the network. reflector may not exist on the ISO, in which case
+# rank_mirrors() falls back to the official mirror status JSON with curl+python3
+# (both on the ISO); if neither is available it leaves the mirrorlist alone.
+# Nothing here adds a repository or touches pacman.conf.
+do_mirrors_iso() {
+  rank_mirrors
+}
+
+# do_mirrors_target — copy the ranked mirrorlist onto the new root once pacstrap
+# has created /etc, so the installed system starts with the same ordering. The
+# chroot phase re-ranks it in place (reflector is in official.txt); this copy is
+# what makes that non-critical.
+do_mirrors_target() {
+  local dst=$TARGET/etc/pacman.d/mirrorlist
+  if [[ ! -d $TARGET/etc/pacman.d ]]; then
+    warn "$TARGET/etc/pacman.d missing — did pacstrap run? skipping the mirrorlist copy"
+    return 0
+  fi
+  if [[ -f $dst ]]; then
+    backup_once "$dst"
+  fi
+  write_file "$dst" 0644 root:root < /etc/pacman.d/mirrorlist
+  log "copied the ranked mirrorlist to $dst"
+}
+
 # do_pacstrap — install every package in official.txt into the new root.
 #   -K  initialise the pacman keyring on the target (needed for a fresh root)
 #   -c  use the host's package cache, which on the ISO is the offline mirror
@@ -244,8 +270,10 @@ main() {
   check_mounts
   check_network
 
-  step "pacstrap" do_pacstrap
-  step "fstab"    do_fstab
+  step "mirrors-iso"    do_mirrors_iso
+  step "pacstrap"       do_pacstrap
+  step "mirrors-target" do_mirrors_target
+  step "fstab"          do_fstab
 
   # Staging is deliberately NOT a step: it must run on every invocation, so a
   # re-run always executes the repo as it is on disk now, not the copy that was

@@ -95,10 +95,24 @@ die() { printf '\n  %sXX%s %s\n\n' "$_c_red" "$_c_reset" "$*" >&2; exit 1; }
 run() {
   local desc=$1; shift
   [[ ${1:-} == -- ]] && shift
+  local rc=0
+  _stream "$desc" -- "$@" || rc=$?
+  (( rc == 0 )) && return 0
+  _report_failure "$rc"
+  exit "$rc"
+}
+
+# _stream <desc> -- <cmd...> — internal: announce, tee live, record the log path,
+# and return the command's own exit status without deciding what to do about it.
+_stream() {
+  local desc=$1; shift
+  [[ ${1:-} == -- ]] && shift
 
   local slug logfile rc=0
   slug=$(printf '%s' "$desc" | tr -cs 'A-Za-z0-9._-' '_')
   logfile="$ARCH_LOGDIR/$slug.log"
+  _LAST_LOG=$logfile
+  _LAST_CMD="$*"
 
   printf '\n  %s>>>%s %s\n' "$_c_cyan" "$_c_reset" "$desc"
 
@@ -119,19 +133,37 @@ run() {
 
   # Keep the full transcript across runs, separately from the per-command log.
   cat "$logfile" >>"$ARCH_LOGDIR/session.log" 2>/dev/null || true
+  return "$rc"
+}
 
-  if (( rc != 0 )); then
-    _RUN_REPORTED=1
-    set +x   # keep the failure report readable: no trace lines inside it
-    printf '\n' >&2
-    printf '  %sXX%s command failed (exit %d): %s\n' "$_c_red" "$_c_reset" "$rc" "$desc" >&2
-    printf '  %s   command:%s %s\n' "$_c_red" "$_c_reset" "$*" >&2
-    printf '  %s   log:    %s%s\n' "$_c_red" "$_c_reset" "$logfile" >&2
-    printf '\n  %s--- last output of the failing command ---%s\n' "$_c_yellow" "$_c_reset" >&2
-    tail -n 40 "$logfile" | sed 's/^/  | /' >&2
-    printf '  %s--- end ---%s\n\n' "$_c_yellow" "$_c_reset" >&2
-    exit "$rc"
-  fi
+# _report_failure <rc> — print the exit code, the command, the log path and the
+# last 40 lines of the failing command's own output, then mark it reported so the
+# ERR trap stays quiet.
+_report_failure() {
+  local rc=$1
+  _RUN_REPORTED=1
+  set +x   # keep the failure report readable: no trace lines inside it
+  printf '\n' >&2
+  printf '  %sXX%s command failed (exit %d)\n' "$_c_red" "$_c_reset" "$rc" >&2
+  printf '  %s   command:%s %s\n' "$_c_red" "$_c_reset" "${_LAST_CMD:-unknown}" >&2
+  printf '  %s   log:    %s%s\n' "$_c_red" "$_c_reset" "${_LAST_LOG:-unknown}" >&2
+  printf '\n  %s--- last output of the failing command ---%s\n' "$_c_yellow" "$_c_reset" >&2
+  tail -n 40 "${_LAST_LOG:-/dev/null}" 2>/dev/null | sed 's/^/  | /' >&2
+  printf '  %s--- end ---%s\n\n' "$_c_yellow" "$_c_reset" >&2
+}
+
+# try_run <desc> -- <cmd...> — same streaming and logging as run(), but a failure
+# is a warning, not fatal. For optional improvements (mirror ranking) that must
+# never be able to abort an install.
+try_run() {
+  local desc=$1; shift
+  [[ ${1:-} == -- ]] && shift
+  local rc=0
+  _stream "$desc" -- "$@" || rc=$?
+  (( rc == 0 )) && return 0
+  warn "optional command failed (exit $rc): $desc"
+  [[ -s ${_LAST_LOG:-} ]] && tail -n 10 "${_LAST_LOG}" | sed 's/^/  | /' >&2
+  return "$rc"
 }
 
 # capture <var> -- <command...> — run a read-only probe, keep its stdout in var.
@@ -272,6 +304,99 @@ backup_once() {
   fi
   cp -a "$file" "$file.pre-arch-configs"
   log "backed up: $file -> $file.pre-arch-configs"
+}
+
+# ---------------------------------------------------------------------------
+# Mirror ranking — official mirrors only
+# ---------------------------------------------------------------------------
+# rank_mirrors — rewrite /etc/pacman.d/mirrorlist with the fastest OFFICIAL
+# Arch mirrors, measured from this machine.
+#
+# Guarantees, because mirror trust is not negotiable:
+#   * only servers listed on https://archlinux.org/mirrors/status/ are written;
+#     no third-party, no CachyOS/EndeavourOS/any other repo is added;
+#   * /etc/pacman.conf is NOT touched here — no repository is added, removed or
+#     re-pointed, by this function or any other;
+#   * the previous mirrorlist is kept as mirrorlist.pre-arch-configs;
+#   * any failure is a warning: the old mirrorlist stays and the install goes on.
+#
+# Ranker order: rate-mirrors (what CachyOS uses, AUR), then reflector (the
+# official Arch package in packages/official.txt), then the mirror status JSON +
+# python3 (present on the ISO), which needs no extra package at all.
+#
+# MIRROR_RANKING=0 skips this entirely. MIRROR_COUNT/MIRROR_PROTOCOL tune it.
+MIRROR_COUNT=${MIRROR_COUNT:-20}
+MIRROR_PROTOCOL=${MIRROR_PROTOCOL:-https}
+
+rank_mirrors() {
+  if [[ ${MIRROR_RANKING:-1} != 1 ]]; then
+    skip "mirror ranking disabled (MIRROR_RANKING=0)"
+    return 0
+  fi
+
+  local ml=/etc/pacman.d/mirrorlist
+  [[ -f $ml ]] || die "missing $ml (pacman-mirrorlist should provide it)"
+  backup_once "$ml"
+
+  local tmp ok=0
+  tmp=$(mktemp)
+
+  if command -v rate-mirrors >/dev/null 2>&1; then
+    log "mirror ranker: rate-mirrors (the one CachyOS ships)"
+    try_run "rate-mirrors official arch ($MIRROR_PROTOCOL)" -- \
+      bash -c "rate-mirrors --allow-root --protocol '$MIRROR_PROTOCOL' arch | tee '$tmp'" && ok=1
+
+  elif command -v reflector >/dev/null 2>&1; then
+    log "mirror ranker: reflector (official Arch package)"
+    try_run "reflector --protocol $MIRROR_PROTOCOL --sort rate" -- \
+      reflector --protocol "$MIRROR_PROTOCOL" --latest 50 --number "$MIRROR_COUNT" \
+                --sort rate --threads 4 --connection-timeout 5 --download-timeout 10 \
+                --save "$tmp" && ok=1
+
+  elif command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    log "mirror ranker: archlinux.org/mirrors/status/json (no reflector installed yet)"
+    local json; json=$(mktemp)
+    if try_run "fetch official mirror status JSON" -- \
+         curl -fsS --max-time 20 https://archlinux.org/mirrors/status/json/ -o "$json"; then
+      if python3 - "$json" "$MIRROR_COUNT" "$MIRROR_PROTOCOL" >"$tmp" <<'PY'
+import json, sys
+path, count, proto = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+with open(path) as fh:
+    data = json.load(fh)
+urls = [m for m in data.get("urls", [])
+        if m.get("protocol") == proto
+        and m.get("active")
+        and float(m.get("completion_ratio") or 0) >= 0.99]
+urls.sort(key=lambda m: (m.get("delay") or 99999, m.get("duration_avg") or 99999))
+print("# Ranked official Arch mirrors (%s) from archlinux.org/mirrors/status/" % proto)
+print("# Generated by arch-configs. No third-party hosts, no extra repositories.")
+for m in urls[:count]:
+    print("Server = %s$repo/os/$arch" % m["url"].rstrip("/"))
+PY
+      then
+        ok=1
+      else
+        warn "could not parse the mirror status JSON"
+      fi
+    fi
+    rm -f "$json"
+  else
+    warn "no mirror ranker available (need rate-mirrors, reflector, or curl+python3) — keeping the current mirrorlist"
+    rm -f "$tmp"
+    return 0
+  fi
+
+  local n=0
+  (( ok )) && n=$(grep -c '^Server = ' "$tmp" 2>/dev/null || true)
+  if (( n < 3 )); then
+    warn "mirror ranking produced ${n} usable server(s) — keeping the previous mirrorlist"
+    rm -f "$tmp"
+    return 0
+  fi
+
+  write_file "$ml" 0644 root:root <"$tmp"
+  rm -f "$tmp"
+  log "mirrorlist ranked: $n official servers (previous kept as $ml.pre-arch-configs)"
 }
 
 # ---------------------------------------------------------------------------

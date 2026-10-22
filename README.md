@@ -124,17 +124,29 @@ Ordered, each step idempotent and re-runnable.
    mode `0644` — except `/etc/sudoers.d/10-wheel`, which gets `0440` because sudo
    ignores a group- or world-writable sudoers file. The PAM snippet is not copied:
    its lines are appended to `/etc/pam.d/sddm`, which belongs to the sddm package.
-   Then uncomments the pacman tweaks in `/etc/pacman.conf`.
-4. **Initramfs.** `mkinitcpio -P`. Generates both kernels' images if more than one
+   Then sets the four pacman tweaks **inside `[options]` only** and verifies the
+   result with pacman's own parser (see “What the installer is allowed to do to
+   pacman.conf” below).
+4. **Mirrors.** `rank_mirrors` rewrites `/etc/pacman.d/mirrorlist` with the fastest
+   **official** servers, measured from this machine, and the result is copied onto
+   the new root after pacstrap. Official-only by construction: the candidate list
+   comes from `archlinux.org/mirrors/status`, nothing is added to `pacman.conf`,
+   and the previous mirrorlist is kept as `mirrorlist.pre-arch-configs`. Order of
+   preference: `rate-mirrors` (what CachyOS uses) → `reflector` (official Arch
+   package, listed in `packages/official.txt`) → the status JSON parsed by
+   `python3` (no package needed, works on the ISO). Any failure is a warning: the
+   existing mirrorlist stays and the install continues. `MIRROR_RANKING=0`
+   disables it, `MIRROR_COUNT`/`MIRROR_PROTOCOL` tune it.
+5. **Initramfs.** `mkinitcpio -P`. Generates both kernels' images if more than one
    kernel is installed.
-5. **Bootloader.** `grub-install --target=x86_64-efi --efi-directory=/boot
+6. **Bootloader.** `grub-install --target=x86_64-efi --efi-directory=/boot
    --bootloader-id=GRUB`, then asserts that no `GRUB_CMDLINE_LINUX*` variable sets
    `rootflags`, then runs `grub-mkconfig -o /boot/grub/grub.cfg`. The assertion
    targets the *assignment*, not the file's text: `/etc/default/grub` mentions
    `rootflags` in its own comments, and `grub.cfg` legitimately contains it inside
    grub-btrfs's snapshot entries. A naive `grep rootflags /etc/default/grub` would
    match the documentation and abort every install.
-6. **Snapshots.** `snapper --no-dbus -c root create-config /` (creates `/.snapshots`
+7. **Snapshots.** `snapper --no-dbus -c root create-config /` (creates `/.snapshots`
    as its own subvolume inside `@`), then patches the keys it cares about in
    `/etc/snapper/configs/root` in place. The `--no-dbus` global option is not
    optional here: on Arch every snapper command goes through D-Bus to `snapperd`,
@@ -150,7 +162,7 @@ Ordered, each step idempotent and re-runnable.
    **and as a subvolume** (snapper refuses in either case), and
    `/etc/snapper/configs` is created if missing. Each of those has its own error
    message, so a failure here says what is wrong instead of just "command failed".
-7. **Services.** `systemctl enable` only, never `start` (there is no PID 1 in a
+8. **Services.** `systemctl enable` only, never `start` (there is no PID 1 in a
    chroot): `NetworkManager`, `systemd-timesyncd`, `bluetooth`, `sddm`, `thermald`,
    `power-profiles-daemon`, `docker`, `cups`, `ufw`, `plocate-updatedb.timer`,
    `paccache.timer`, `snapper-timeline.timer`, `snapper-cleanup.timer`,
@@ -158,10 +170,10 @@ Ordered, each step idempotent and re-runnable.
    `<name>.service` before the existence check — unit *files* always carry a
    suffix, so testing the bare name would silently skip nine of the fourteen and
    leave the machine with no sddm.
-8. **Firewall.** `ufw default deny incoming`, `ufw default allow outgoing`,
+9. **Firewall.** `ufw default deny incoming`, `ufw default allow outgoing`,
    `ufw --force enable`. Enabling the unit alone applies no policy; without this the
    machine would carry a firewall package and no rules.
-9. **Dotfiles.** Copies `configs/*` → `/home/medo/.config/`, `home/*` →
+10. **Dotfiles.** Copies `configs/*` → `/home/medo/.config/`, `home/*` →
    `/home/medo/`, `bin/*` → `/home/medo/.local/bin` (0755), `applications/*` →
    `/home/medo/.local/share/applications` (0644), `data/*` →
    `/home/medo/.local/share/arch-configs/data`, `wallpapers/*` →
@@ -173,11 +185,15 @@ Ordered, each step idempotent and re-runnable.
    `xdg-user-dirs-update` **as medo** via `runuser` — as root, `fc-cache` would build
    `/root/.cache/fontconfig` and leave the Arabic stack uncached for the user, and
    `update-desktop-database` would leave a root-owned `mimeinfo.cache` in their home.
-10. **First rollback point.** `snapper -c root create -d "post-install"`, then
-   `grub-mkconfig` again so the "Arch Linux snapshots" submenu is populated on the
-   very first boot. Without the regeneration the menu entry would not appear until
-   the first pacman transaction, which is exactly when a rollback is most wanted.
-11. **AUR.** `su - medo -c 'paru -S --needed --noconfirm --skipreview …'` for
+11. **First rollback point.** `snapper --no-dbus -c root create -d "post-install"`,
+   then `grub-mkconfig` again so the "Arch Linux snapshots" submenu is populated on
+   the very first boot. Without the regeneration the menu entry would not appear
+   until the first pacman transaction, which is exactly when a rollback is most
+   wanted.
+12. **Mirrors, then AUR.** `rank_mirrors` runs immediately before this step, so
+   `paru` and the AUR builds go through the fastest official mirrors measured from
+   this machine rather than whatever `pacman-mirrorlist` shipped with.
+   `su - medo -c 'paru -S --needed --noconfirm --skipreview …'` for
     `packages/aur.txt`, after bootstrapping `paru` itself from the AUR with
     `makepkg -si`. **No temporary sudoers file is needed** — `%wheel` already has
     `NOPASSWD`, so the user switch can sudo freely. `makepkg` refuses to run as root,
@@ -263,7 +279,24 @@ check is read-only — the installer never creates, mounts or formats anything.
 | `sddm.conf.d/10-theme.conf` | `/etc/sddm.conf.d/` | INI | Cursor theme and size so SDDM matches the session. |
 | `pam.d/sddm.keyring.snippet` | appended to `/etc/pam.d/sddm` | pam | `pam_gnome_keyring.so` `auth`/`session` lines, so the login password also unlocks the keyring. |
 | `sudoers.d/10-wheel` | `/etc/sudoers.d/` | sudoers | `%wheel ALL=(ALL:ALL) NOPASSWD: ALL`. |
-| — (patched in place) | `/etc/pacman.conf` | INI | Not a repo file. `install-chroot.sh` uncomments or adds: `Color`, `ILoveCandy`, `VerbosePkgLists`, `ParallelDownloads = 8`. Uncommenting the existing line rather than appending avoids duplicate keys. |
+| — (patched in place) | `/etc/pacman.conf` | INI | Not a repo file. `install-chroot.sh` toggles exactly four keys — `Color`, `ILoveCandy`, `VerbosePkgLists`, `ParallelDownloads = 8` — **inside `[options]` and nowhere else**. If a key is absent it is inserted directly after the `[options]` header, never appended to the end of the file (appending put `ILoveCandy` inside `[extra]`, which pacman reports as `'ILoveCandy' in section 'extra' not recognized`). Stray copies of those four keys outside `[options]`, left by that old bug, are removed and logged with their line numbers. Afterwards each key must appear exactly once inside `[options]`, and `pacman --config` must not print `not recognized`, or the run stops. No repository line is ever added, removed or re-pointed. |
+
+### What the installer is allowed to do to `pacman.conf`
+
+Scope, enforced in code rather than by intention:
+
+- Toggle **only** `Color`, `ILoveCandy`, `VerbosePkgLists`, `ParallelDownloads`.
+- **Only** inside the `[options]` section. `[core]`, `[extra]`, `[multilib]`, custom
+  repos — never touched, never reordered, never added.
+- Never add a mirror or a repository anywhere. Mirror ranking writes
+  `/etc/pacman.d/mirrorlist` only, and only with servers from
+  `archlinux.org/mirrors/status`.
+- `check_pacman_conf()` runs after the edits: structural check (each key exactly
+  once, inside `[options]`) plus `pacman --config /etc/pacman.conf -Qq pacman`,
+  whose stderr must not contain `not recognized`. A failure aborts with the exact
+  offending line and the restore command (`cp /etc/pacman.conf.pre-arch-configs
+  /etc/pacman.conf`).
+- `backup_once` keeps the pristine file before the first edit.
 | `vconsole.conf` | `/etc/` | INI | `KEYMAP=fr-pc` — French AZERTY at the TTY and at the LUKS-less early console. |
 
 ---

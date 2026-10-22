@@ -262,30 +262,159 @@ install_system_files() {
   done
 }
 
-# set_pacman_options — amend /etc/pacman.conf in place. Appending duplicate keys
-# is not safe, so this uncomments the existing line when there is one.
-set_pacman_option() {
-  local key=$1 value=${2:-} file=/etc/pacman.conf line=$1
-  [[ -n $value ]] && line="$key = $value"
+# ---------------------------------------------------------------------------
+# pacman.conf — additive only, and only inside [options]
+# ---------------------------------------------------------------------------
+#
+# Scope of what this installer is allowed to do to /etc/pacman.conf:
+#   * toggle exactly the four options in PACMAN_OPTION_KEYS;
+#   * only inside [options], never anywhere else;
+#   * never add, remove, rename, reorder or re-point a repository, and never
+#     touch /etc/pacman.d/mirrorlist's *contents* beyond the official server
+#     ranking in rank_mirrors().
+#
+# The bug this replaces: when a key was absent the old code did
+# `printf '%s\n' "$line" >> /etc/pacman.conf`, which appends to the END of the
+# file — i.e. inside whichever repository section is last ([extra]). pacman only
+# reads these switches in [options], so the result was
+#   warning: config file /etc/pacman.conf, line 101: 'ILoveCandy' in section
+#   'extra' not recognized.
+#
+# The code below does three things, in this order:
+#   1. rewrites the file so each key appears exactly once, inside [options];
+#   2. deletes stray copies of those same keys outside [options], logging each
+#      one with its line number (these can only be the leftovers of the old bug);
+#   3. verifies the result structurally and with pacman's own config parser.
+PACMAN_OPTION_KEYS=(Color ILoveCandy VerbosePkgLists ParallelDownloads)
 
-  if grep -qE "^${key}([[:space:]]|=|$)" "$file"; then
-    skip "pacman option already set: $key"
-  elif grep -qE "^#[[:space:]]*${key}" "$file"; then
-    sed -i -E "s|^#[[:space:]]*${key}.*|${line}|" "$file"
-    log "pacman option enabled: $line"
-  else
-    printf '%s\n' "$line" >>"$file"
-    log "pacman option added: $line"
-  fi
+# _pacman_key_line <key> [value] — the canonical line written into [options].
+pacman_key_line() {
+  if [[ -n ${2:-} ]]; then printf '%s = %s' "$1" "$2"; else printf '%s' "$1"; fi
 }
 
-# set_pacman_options — the four quality-of-life switches.
+# set_pacman_option <key> [value] — idempotent, placement-enforcing edit of ONE key.
+set_pacman_option() {
+  local key=$1 value=${2:-} file=/etc/pacman.conf
+  local want; want=$(pacman_key_line "$key" "${value:-}")
+  [[ -f $file ]] || die "missing $file — the pacman package should provide it"
+
+  local -a lines=() out=() dropped=()
+  mapfile -t lines <"$file"
+  local total=${#lines[@]} i raw t lc kc
+  local opt_start=-1 opt_end=$total active=-1 commented=-1
+  kc=${key,,}
+
+  for (( i = 0; i < total; i++ )); do
+    raw=${lines[i]}
+    t=${raw}
+    t=${t#"${t%%[![:space:]]*}"}          # trim leading whitespace
+    t=${t%"${t##*[![:space:]]}"}           # trim trailing whitespace
+    lc=${t,,}                              # pacman's parser is case-insensitive
+
+    if [[ $t == \[*\] ]]; then
+      if [[ $t == '[options]' ]]; then
+        opt_start=$i; opt_end=$total
+      elif (( opt_start >= 0 && opt_end == total )); then
+        opt_end=$i                         # first section header after [options]
+      fi
+      continue
+    fi
+
+    if [[ $lc == "$kc" || $lc == "$kc"[[:space:]]=* ]]; then
+      # uncommented occurrence of our key
+      if (( opt_start >= 0 && i > opt_start && i < opt_end )); then
+        (( active < 0 )) && active=$i
+      else
+        dropped+=("$i")                    # stray copy outside [options]
+      fi
+    elif [[ $lc == "#$kc" || $lc == "#"[[:space:]]"$kc" || $lc == "#$kc"[[:space:]]=* || $lc == "#"[[:space:]]"$kc"[[:space:]]=* ]]; then
+      if (( opt_start >= 0 && i > opt_start && i < opt_end )); then
+        (( commented < 0 )) && commented=$i
+      fi
+    fi
+  done
+
+  (( opt_start >= 0 )) || die "$file has no [options] section — refusing to touch it"
+
+  local -A skip_idx=()
+  local d
+  if (( ${#dropped[@]} )); then
+    for d in "${dropped[@]}"; do skip_idx[$d]=1; done
+  fi
+
+  # Build the new file: drop strays, replace the one real occurrence, or insert
+  # immediately after the [options] header when the key is not there at all.
+  local insert_at=-1
+  (( active >= 0 )) || (( commented >= 0 )) || insert_at=$((opt_start + 1))
+
+  for (( i = 0; i < total; i++ )); do
+    [[ -n ${skip_idx[$i]:-} ]] && continue
+    if (( i == active || i == commented )); then
+      out+=("$want")
+    else
+      out+=("${lines[i]}")
+    fi
+    if (( i == opt_start && insert_at > 0 )); then
+      out+=("$want")
+    fi
+  done
+
+  # Compare by content before writing, so a re-run touches nothing and reports
+  # "unchanged". The trace is muted for the write itself: `set -x` would dump
+  # every line of pacman.conf into the log, which is unreadable and pointless.
+  local tmpd; tmpd=$(mktemp)
+  set +x
+  printf '%s\n' "${out[@]}" >"$tmpd"
+  set -x
+
+  if (( ${#dropped[@]} )); then
+    for d in "${dropped[@]}"; do
+      warn "pacman.conf: removing stray '${lines[d]}' at line $((d + 1)) (outside [options], left by the old append bug)"
+    done
+  fi
+
+  if cmp -s "$tmpd" "$file"; then
+    rm -f "$tmpd"
+    skip "pacman.conf: $key already correct inside [options]"
+    return 0
+  fi
+
+  write_file "$file" 0644 root:root <"$tmpd"
+  rm -f "$tmpd"
+  log "pacman.conf: [options] $want"
+}
+
+# check_pacman_conf — fail loudly rather than ship a config pacman complains about.
+#   1. structural: each managed key appears exactly once, and inside [options];
+#   2. authoritative: pacman's own parser must not print "not recognized".
+check_pacman_conf() {
+  local file=/etc/pacman.conf key n
+  for key in "${PACMAN_OPTION_KEYS[@]}"; do
+    n=$(awk -v k="$key" '
+      /^[[:space:]]*\[/ { s = $0; gsub(/[][[:space:]]/, "", s); next }
+      { line = tolower($0); sub(/^[[:space:]]+/, "", line) }
+      line ~ ("^" tolower(k) "([[:space:]]|=|$)") && s == "options" { n++ }
+      END { print n + 0 }' "$file")
+    (( n == 1 )) \
+      || die "pacman.conf: expected exactly one '$key' inside [options], found $n — not writing a broken config"
+  done
+
+  local complaints
+  complaints=$(pacman --config "$file" -Qq pacman 2>&1 >/dev/null | grep -i 'not recognized' || true)
+  [[ -z $complaints ]] || die "pacman rejects $file after editing:
+$complaints
+Restore it with: cp $file.pre-arch-configs $file"
+  log "pacman.conf verified: ${#PACMAN_OPTION_KEYS[@]} options in [options], no parser warnings"
+}
+
+# set_pacman_options — the four quality-of-life switches, then verify.
 set_pacman_options() {
   backup_once /etc/pacman.conf
   set_pacman_option Color                       # coloured output
   set_pacman_option ILoveCandy                  # pacman progress bar as a snake
   set_pacman_option VerbosePkgLists             # show version changes per package
   set_pacman_option ParallelDownloads 8         # eight concurrent downloads
+  check_pacman_conf
 }
 
 # set_keyring_pam — append pam_gnome_keyring to SDDM's PAM stack, so the login
@@ -705,6 +834,11 @@ main() {
   step "dotfiles"           install_dotfiles
 
   step "first-snapshot"     take_first_snapshot
+
+  # Rank the official mirrors BEFORE anything touches the network for packages
+  # (the AUR step is the only one here that does). Official servers only; see
+  # rank_mirrors() for the guarantees. MIRROR_RANKING=0 disables it.
+  step "mirrors"            rank_mirrors
 
   step "aur"                install_aur
 
