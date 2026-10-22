@@ -134,12 +134,18 @@ Ordered, each step idempotent and re-runnable.
    `rootflags` in its own comments, and `grub.cfg` legitimately contains it inside
    grub-btrfs's snapshot entries. A naive `grep rootflags /etc/default/grub` would
    match the documentation and abort every install.
-6. **Snapshots.** `snapper -c root create-config /` (creates `/.snapshots` as its own
-   subvolume inside `@`), then patches the keys it cares about in
-   `/etc/snapper/configs/root` in place — the file snapper generated is kept, only
-   specific values are changed, so nothing snapper needs can be lost. No manual
-   `/.snapshots` creation beforehand — doing that
-   makes `create-config` fail. Before calling snapper the phase runs its own
+6. **Snapshots.** `snapper --no-dbus -c root create-config /` (creates `/.snapshots`
+   as its own subvolume inside `@`), then patches the keys it cares about in
+   `/etc/snapper/configs/root` in place. The `--no-dbus` global option is not
+   optional here: on Arch every snapper command goes through D-Bus to `snapperd`,
+   and a chroot has no system bus, so it aborts with
+   `Failure (org.freedesktop.DBus.Error.ServiceUnknown): The name
+   org.freedesktop.systemd1 was not provided by any .service files`. `--no-dbus`
+   makes snapper do the work in-process (snapper(8): *"Operate without a DBus
+   connection"*); archinstall uses the identical invocation for the same reason.
+   `SYSTEMD_OFFLINE=1` is exported for the same class of problem: `systemctl
+   enable` works offline by writing unit symlinks, instead of complaining that
+   PID 1 is not systemd. Before calling snapper the phase runs its own
    pre-flight: `/` must be btrfs, `/.snapshots` must be absent both as a directory
    **and as a subvolume** (snapper refuses in either case), and
    `/etc/snapper/configs` is created if missing. Each of those has its own error
@@ -226,6 +232,14 @@ continue at the first incomplete one (the chroot keeps its own state file inside
 written to be idempotent — it inspects state before acting — so even a forced
 re-run converges instead of duplicating. `ARCH_FORCE=1 ./install.sh` ignores the
 state file and re-runs everything.
+
+Chroot confirmation: `arch-chroot` runs a command, not an interactive shell, so
+your prompt never changes and there is nothing on screen that says "you are now in
+/mnt". `install.sh` therefore logs `entering chroot: /mnt becomes /` plus the
+source and filesystem of `/mnt`, and `install-chroot.sh` starts with
+`verify_chroot()`, which prints
+`chroot check: / is btrfs on /dev/nvme1n1p2[/@]` and fails loudly if `/` is not
+btrfs, if the staged repo is missing, or if the root has no pacman database.
 
 Mount check: `check_mounts()` verifies that `/var/log`, `/var/cache/pacman/pkg` and
 `/var/lib/containerd` are their own mounts, using findmnt's resolved `TARGET` (the

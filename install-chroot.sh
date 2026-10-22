@@ -16,6 +16,21 @@ set -euo pipefail
 # The repo as staged inside the new root by install.sh.
 REPO=/root/arch-configs
 
+# Everything snapper does on Arch goes through D-Bus to snapperd, and there is no
+# system or session bus inside a chroot — every snapper command would abort with
+#   Failure (org.freedesktop.DBus.Error.ServiceUnknown):
+#   The name org.freedesktop.systemd1 was not provided by any .service files
+# --no-dbus makes snapper do the work in-process instead (it is a documented
+# global option: snapper(8) "Operate without a DBus connection"). archinstall uses
+# the same invocation for the same reason. SNAPPER_NO_DBUS below keeps it in one
+# place so no call site can forget it.
+SNAPPER_NO_DBUS=(--no-dbus)
+
+# systemctl in a chroot normally complains that PID 1 is not systemd. Offline mode
+# makes `enable`/`is-enabled` work by reading and writing unit symlinks only,
+# which is exactly what this installer does (never `start`).
+export SYSTEMD_OFFLINE=1
+
 # shellcheck source=lib/common.sh
 source "$REPO/lib/common.sh"
 
@@ -59,6 +74,31 @@ SERVICES=(
   snapper-cleanup.timer   # prunes old snapshots
   grub-btrfsd             # regenerates the GRUB snapshot submenu on changes
 )
+
+# verify_chroot — prove in the log that this script is really running inside the
+# new root and not on the live ISO. arch-chroot gives no visual cue (it does not
+# change your prompt), so without this the only evidence is the script's output,
+# which is easy to misread when diagnosing a failure.
+#
+# Always runs (not a step): it is a cheap check and must run on every invocation.
+verify_chroot() {
+  local root_src root_fs os_name=unknown
+  capture root_src -- findmnt -n -o SOURCE --target /
+  capture root_fs  -- findmnt -n -o FSTYPE --target /
+  # Read os-release with the shell, not `sed | head`: a pipeline here would trip
+  # errexit (and the ERR trap) in a command substitution if the file is missing,
+  # before any of the real checks below get a chance to speak.
+  [[ -r /etc/os-release ]] && os_name=$(set +u; . /etc/os-release; printf '%s' "${NAME:-unknown}")
+
+  log "chroot check: / is ${root_fs} on ${root_src}"
+  log "chroot check: os=${os_name:-unknown} repo=$REPO"
+  [[ $root_fs == btrfs ]] \
+    || die "this script must run inside the new root (chroot), but / is ${root_fs:-nothing} on ${root_src:-nothing}"
+  [[ -f $REPO/install-chroot.sh ]] \
+    || die "staged repo missing at $REPO — run install.sh, which stages it into the new root"
+  [[ -d /var/lib/pacman/local ]] \
+    || die "this root does not look installed yet (/var/lib/pacman/local missing) — pacstrap must run first"
+}
 
 # ---------------------------------------------------------------------------
 # 1. Locale, time, and identity
@@ -420,7 +460,9 @@ configure_snapper() {
     fi
 
     mkdir -p /etc/snapper/configs
-    run "snapper -c root create-config /" -- snapper -c root create-config /
+    run "snapper --no-dbus -c root create-config /" -- \
+      snapper "${SNAPPER_NO_DBUS[@]}" -c root create-config /
+    log "created snapper config for / (and the /.snapshots subvolume)"
     log "created snapper config for / (and the /.snapshots subvolume)"
   fi
 
@@ -573,12 +615,13 @@ take_first_snapshot() {
   # Substring match, not an exact-line match: snapper pads its columns with
   # spaces, so -x would never match.
   local descs
-  descs=$(snapper -c root list --columns description 2>/dev/null || true)
+  descs=$(snapper "${SNAPPER_NO_DBUS[@]}" -c root list --columns description 2>/dev/null || true)
   if grep -q 'post-install' <<<"$descs"; then
     skip "post-install snapshot already exists"
     return 0
   fi
-  run "snapper -c root create -d post-install" -- snapper -c root create -d 'post-install'
+  run "snapper --no-dbus -c root create -d post-install" -- \
+    snapper "${SNAPPER_NO_DBUS[@]}" -c root create -d 'post-install'
   log "created snapshot: post-install"
 
   # Regenerate the boot menu now that a snapshot exists, so the
@@ -636,6 +679,8 @@ main() {
   log "state: $COMPLETED"
   (( ${ARCH_FORCE:-0} == 1 )) && warn "ARCH_FORCE=1: every phase will be re-run"
 
+  verify_chroot
+
   step "locales"             set_locales
   step "locale-conf"        set_locale_conf
   step "timezone"           set_timezone
@@ -663,8 +708,7 @@ main() {
 
   step "aur"                install_aur
 
-  section "Done"
-  log "system configured; returning to install.sh"
+  section "Done"  log "system configured; returning to install.sh"
   log "per-command logs: $ARCH_LOGDIR"
 }
 

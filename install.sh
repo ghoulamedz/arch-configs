@@ -188,12 +188,14 @@ do_stage() {
 # arch-chroot bind-mounts /etc/resolv.conf and the kernel filesystems, so the
 # chroot has working DNS (needed for the AUR step) and /proc, /sys, /dev.
 #
-# If the chroot is interrupted, arch-chroot cleans up its own bind mounts on
-# SIGINT/SIGTERM but not on SIGKILL. The cleanup trap below makes a Ctrl-C exit
-# leave /mnt in a state you can umount.
+# arch-chroot gives no visual cue that the root changed (your prompt stays the
+# same, it runs a command, not an interactive shell), so announce it explicitly
+# and print what / is about to become. install-chroot.sh re-verifies this from
+# the inside with verify_chroot().
 do_chroot() {
   chmod +x "$STAGED/install-chroot.sh"
-  [[ -x $STAGED/lib/common.sh ]] || chmod +x "$STAGED/lib/common.sh" 2>/dev/null || true
+  log "entering chroot: $TARGET becomes / (no prompt change — arch-chroot runs the script non-interactively)"
+  log "the new root is $(findmnt -n -o SOURCE,FSTYPE --target "$TARGET")"
   run "arch-chroot $TARGET install-chroot.sh" -- \
     arch-chroot "$TARGET" /root/arch-configs/install-chroot.sh
 }
