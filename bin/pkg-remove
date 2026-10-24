@@ -9,11 +9,11 @@ set -euo pipefail
 
 command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
 
-# pacman -Qq is the list of installed package names.
+# pacman -Qeq lists only explicitly installed packages (not dependencies).
 # pacman -Qii shows reverse dependencies and the files it owns, which is what you
 # want to see before deleting something.
 mapfile -t chosen < <(
-  pacman -Qq | fzf --multi \
+  pacman -Qeq | fzf --multi \
     --preview 'pacman -Qii {1}' \
     --preview-label='tab: multi-select  ·  alt-j/k: scroll' \
     --preview-label-pos='bottom' \

@@ -18,7 +18,6 @@
   "margin-left": 0,
   "margin-right": 0,
   "fixed-center": true,        // keep the centre group truly centred
-  "font-size": 12,
 
   // Left: launcher, then workspaces.
   "modules-left": [
@@ -50,7 +49,7 @@
   // -------------------------------------------------------------------------
 
   "custom/launcher": {
-    "format": "",                       // Nerd Font bars glyph
+    "format": "󰍜",                       // Nerd Font bars glyph (menu icon)
     "tooltip": false,
     "on-click": "fuzzel"                 // the application launcher
   },
@@ -69,8 +68,8 @@
       "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
       "6": "6", "7": "7", "8": "8", "9": "9", "10": "10",
       // A window that is asking for attention.
-      "urgent": "",
-      "default": ""
+      "urgent": "⚠",
+      "default": "○"
     }
   },
 
@@ -179,8 +178,8 @@
       "critical": 10
     },
     "format": "{icon} {capacity}%",
-    "format-charging": " {capacity}%",
-    "format-plugged": " {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰁹 {capacity}%",  // plugged in but not charging (full)
     "format-icons": ["", "", "", "", ""],
     "tooltip-format": "{timeTo}\n{capacity}% — {power}W",
     "on-click": "foot --app-id=float-power-menu -e power-menu"

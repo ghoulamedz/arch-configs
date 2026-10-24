@@ -16,16 +16,16 @@ set -euo pipefail
 SCALES=(1 1.25 1.6 2)
 
 # Rebuild the monitor rule for the focused output, with the given scale, and
-# apply it. The rule format is:
-#   NAME,WIDTHxHEIGHT@REFRESH,XxY,SCALE
+# apply it. Use preferred/auto so hyprland picks the correct physical mode.
+#   monitor=NAME,preferred,auto,SCALE
 apply_scale() {
   local scale=$1
 
   hyprctl monitors -j | jq -r --arg s "$scale" '
     .[] | select(.focused) |
-    "\(.name),\(.width)x\(.height)@\(.refreshRate | floor),\(.x)x\(.y),\($s)"
+    "\(.name),preferred,auto,\($s)"
   ' | while IFS= read -r rule; do
-    hyprctl keyword monitor "$rule" >/dev/null
+    hyprctl keyword monitor "$rule"
   done
 }
 
@@ -54,6 +54,8 @@ case $action in
     [[ -n $choice ]] || exit 0
     apply_scale "$choice"
     notify-send -a display -i video-display "Display scale: $choice"
+    # Persist to monitors.conf so it survives reboot
+    persist_scale "$choice"
     ;;
 
   cycle)
@@ -68,6 +70,7 @@ case $action in
     done
     apply_scale "$next"
     notify-send -a display -i video-display "Display scale: $next"
+    persist_scale "$next"
     ;;
 
   up)
@@ -77,6 +80,7 @@ case $action in
       if awk -v a="$s" -v b="$now" 'BEGIN{exit !(a > b)}'; then
         apply_scale "$s"
         notify-send -a display -i video-display "Display scale: $s"
+        persist_scale "$s"
         exit 0
       fi
     done
@@ -91,6 +95,7 @@ case $action in
       if awk -v a="$s" -v b="$now" 'BEGIN{exit !(a < b)}'; then
         apply_scale "$s"
         notify-send -a display -i video-display "Display scale: $s"
+        persist_scale "$s"
         exit 0
       fi
     done
@@ -101,5 +106,20 @@ case $action in
     # Anything else is treated as an explicit scale value.
     apply_scale "$action"
     notify-send -a display -i video-display "Display scale: $action"
+    persist_scale "$action"
     ;;
 esac
+
+# Persist scale to ~/.config/hypr/monitors.conf so it survives reboot
+persist_scale() {
+  local scale=$1
+  local conf=$HOME/.config/hypr/monitors.conf
+  mkdir -p "$(dirname "$conf")"
+  
+  # Persist ALL monitors: keep their current scale, but update the focused one
+  hyprctl monitors -j | jq -r --arg s "$scale" '
+    .[] |
+    "monitor = \(.name),preferred,auto,\(if .focused then $s else (.scale | tostring) end)"
+  ' > "$conf"
+  printf 'persisted scale %s (all monitors) to %s\n' "$scale" "$conf"
+}

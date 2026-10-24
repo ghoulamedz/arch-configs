@@ -250,7 +250,6 @@ install_system_files() {
   local -a files=(
     "default-grub:/etc/default/grub:0644"
     "mkinitcpio.conf.d/10-system.conf:/etc/mkinitcpio.conf.d/10-system.conf:0644"
-    "mkinitcpio.conf.d/20-nvidia.conf:/etc/mkinitcpio.conf.d/20-nvidia.conf:0644"
     "modprobe.d/nvidia.conf:/etc/modprobe.d/nvidia.conf:0644"
     "zram-generator.conf:/etc/systemd/zram-generator.conf:0644"
     "sddm.conf.d/10-theme.conf:/etc/sddm.conf.d/10-theme.conf:0644"
@@ -444,8 +443,12 @@ set_keyring_pam() {
 build_initramfs() {
   local -a images=() sources=(
     /etc/mkinitcpio.conf
-    /etc/mkinitcpio.conf.d/*.conf
   )
+  # Add drop-ins explicitly to avoid glob expansion issues
+  local f
+  for f in /etc/mkinitcpio.conf.d/*.conf; do
+    [[ -f $f ]] && sources+=("$f")
+  done
   mapfile -t images < <(compgen -G '/boot/initramfs-*.img' || true)
 
   local src newest_conf=0 img_mtime=0
@@ -487,12 +490,11 @@ install_grub() {
   if [[ -f /boot/EFI/GRUB/grubx64.efi ]]; then
     skip "GRUB already installed to the ESP"
   else
-    # Only skip the NVRAM write when a GRUB entry already exists. Match the label
-    # field exactly: `grep -qi GRUB` also matches "GRUB" inside another distro's
-    # description, or a removable-media path, and would leave this system with no
-    # boot entry at all.
+    # Only skip the NVRAM write when a GRUB entry already exists. Match case-
+    # insensitively against labels containing GRUB (e.g., "GRUB", "Arch Linux (GRUB)",
+    # "GRUB Arch"). Use grep -qi to avoid false negatives from label variations.
     local have_entry=0
-    if efibootmgr 2>/dev/null | sed -n 's/^Boot[0-9A-Fa-f]*\*\? \([^\t]*\).*/\1/p' | grep -qxF 'GRUB'; then
+    if efibootmgr 2>/dev/null | grep -qi 'GRUB'; then
       have_entry=1
     fi
     if (( have_entry )); then
@@ -592,7 +594,6 @@ configure_snapper() {
     run "snapper --no-dbus -c root create-config /" -- \
       snapper "${SNAPPER_NO_DBUS[@]}" -c root create-config /
     log "created snapper config for / (and the /.snapshots subvolume)"
-    log "created snapper config for / (and the /.snapshots subvolume)"
   fi
 
   # Automatic timeline snapshots, driven by snapper-timeline.timer.
@@ -686,6 +687,11 @@ install_dotfiles() {
   install -d -m 0755 -o "$USER_NAME" -g "$USER_NAME" "$USER_HOME/Pictures/wallpapers"
   copy_tree "$REPO/wallpapers" "$USER_HOME/Pictures/wallpapers" "$USER_NAME:$USER_NAME"
   install -D -m 0644 "$REPO/keybindings.md" "$USER_HOME/.config/hypr/keybindings.md"
+
+  # Render hyprpaper.conf template with actual home directory
+  export USER_HOME
+  envsubst < "$REPO/configs/hypr/hyprpaper.conf" \
+    | write_file "$USER_HOME/.config/hypr/hyprpaper.conf" 0644 "$USER_NAME:$USER_NAME"
 
   # Render ~/.gitconfig from the template.
   sed -e "s|@GIT_NAME@|$GIT_NAME|" -e "s|@GIT_EMAIL@|$GIT_EMAIL|" \

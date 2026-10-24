@@ -268,5 +268,7 @@ bind("SUPER + SHIFT + comma",      "Dismiss all notifications", "makoctl dismiss
 
 -- Lid switch. Closing the lid turns the internal panel off; opening it brings it
 -- back. `locked = true` means these fire even while the screen is locked.
-bind("switch:on:Lid Switch",       "Lid closed",  "hyprctl keyword monitor eDP-2,disable", { locked = true })
-bind("switch:off:Lid Switch",      "Lid opened",  "hyprctl keyword monitor eDP-2,1920x1080@144,0x0,1", { locked = true })
+-- Uses HYPR_INTERNAL_PANEL env var (set in envs.lua) or falls back to eDP-2.
+local lid_panel = os.getenv("HYPR_INTERNAL_PANEL") or "eDP-2"
+bind("switch:on:Lid Switch",       "Lid closed",  "hyprctl keyword monitor " .. lid_panel .. ",disable", { locked = true })
+bind("switch:off:Lid Switch",      "Lid opened",  "hyprctl keyword monitor " .. lid_panel .. ",1920x1080@144,0x0,1", { locked = true })

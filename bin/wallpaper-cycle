@@ -21,7 +21,7 @@ esac
 
 mapfile -t files < <(
   find "$DIR" -maxdepth 1 -type f \
-    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort -V
 )
 (( ${#files[@]} )) || { echo "no wallpapers in $DIR" >&2; exit 1; }
 

@@ -1,3 +1,5 @@
+$schema = 'https://starship.rs/config-schema.json'
+
 add_newline = true
 command_timeout = 200
 format = "[$directory$git_branch$git_status]($style)$character"
@@ -26,7 +28,7 @@ conflicted = " "
 up_to_date = " "
 untracked  = "? "
 modified   = " "
-stashed    = ""
+stashed    = "$ "
 staged     = ""
 renamed    = ""
 deleted    = ""

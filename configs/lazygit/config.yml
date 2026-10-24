@@ -1,0 +1,48 @@
+# LazyGit configuration
+# Reference: https://github.com/jesseduffield/lazygit/blob/master/docs/Config.md
+
+gui:
+  # Show file size in files panel
+  showFileSize: true
+  # Show git status icons in files panel
+  showFileStatus: true
+  # Theme
+  theme:
+    activeBorderColor:
+      - green
+      - bold
+    inactiveBorderColor:
+      - default
+    selectedLineBgColor:
+      - default
+
+git:
+  # Auto fetch
+  autoFetch: true
+  # Auto refresh
+  autoRefresh: true
+  # Log format
+  log:
+    showWholeGraph: true
+    showGraph: always
+
+os:
+  # Editor
+  editCommand: nvim
+  editCommandTemplates:
+    - nvim {{filename}}
+  # Pager
+  pager: delta
+
+update:
+  # Check for updates
+  check: true
+  # Update method
+  method: prompt
+
+customCommands:
+  # Add custom commands here
+  # - key: <key>
+  #   command: <command>
+  #   description: <description>
+  #   context: <context>

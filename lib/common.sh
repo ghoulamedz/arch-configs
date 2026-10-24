@@ -33,12 +33,14 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Verbosity: always on, always implicit. There is no flag to turn this off.
+# Verbosity: controlled by ARCH_VERBOSE env var (default: 1 = on).
+#   ARCH_VERBOSE=0  — quiet mode, no xtrace
+#   ARCH_VERBOSE=1  — normal, xtrace enabled (default)
 # ---------------------------------------------------------------------------
 # PS4 shows function depth, file and line, so the trace of a 700-line install is
 # still readable:  +install-chroot.sh:317:configure_snapper snapper -c root ...
 export PS4='+${BASH_SOURCE[0]##*/}:${LINENO}:${FUNCNAME[0]:-main} '
-set -x
+[[ ${ARCH_VERBOSE:-1} == 1 ]] && set -x
 
 # Log directory for per-command output. Falls back to /tmp if the real path is
 # not writable (it is, inside the chroot, but not when common.sh is unit-tested).
@@ -424,7 +426,7 @@ enable_service() {
     fi
     run "systemctl enable $unit" -- systemctl enable "$unit"
     log "enabled: $unit"
-  done
+  fi
 }
 
 # ---------------------------------------------------------------------------

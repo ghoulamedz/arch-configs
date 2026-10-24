@@ -10,6 +10,10 @@
 -- globally.
 hl.env("NVD_BACKEND", "direct")
 
+-- Internal panel name for monitors.lua and lid switch bindings.
+-- Auto-detected from hyprctl on first run; override with HYPR_INTERNAL_PANEL.
+hl.env("HYPR_INTERNAL_PANEL", os.getenv("HYPR_INTERNAL_PANEL") or "eDP-2")
+
 -- Deliberately NOT set here:
 --
 --   LIBVA_DRIVER_NAME          the VA-API driver differs per process — iHD for
@@ -62,37 +66,45 @@ hl.env("ELECTRON_OZONE_PLATFORM_HINT", "auto")
 local function load_environment_d()
   local home = os.getenv("HOME") or ""
 
-  -- io.popen rather than a directory read: Lua has no glob.
-  local pipe = io.popen('cat "' .. home .. '/.config/environment.d/"*.conf 2>/dev/null')
+  -- Use ls to list files (works in /bin/sh), then read each one
+  local pipe = io.popen('ls "' .. home .. '/.config/environment.d/"/*.conf 2>/dev/null')
   if not pipe then return end
 
-  -- Lua 5.4 marks a generic-for control variable as const, so the raw line is
-  -- copied into a local before being modified.
-  for raw in pipe:lines() do
-    local line = raw:gsub("^%s+", ""):gsub("%s+$", "")
+  for filename in pipe:lines() do
+    filename = filename:gsub("^%s+", ""):gsub("%s+$", "")
+    if filename ~= "" then
+      local file = io.open(filename, "r")
+      if file then
+        for raw in file:lines() do
+          local line = raw:gsub("^%s+", ""):gsub("%s+$", "")
 
-    if line ~= "" and line:sub(1, 1) ~= "#" then
-      local key, value = line:match("^([%w_]+)=(.*)$")
+          if line ~= "" and line:sub(1, 1) ~= "#" then
+            local key, value = line:match("^([%w_]+)=(.*)$")
 
-      if key then
-        value = value:gsub("^[\"']", ""):gsub("[\"']$", "")
-        value = value:gsub("%$HOME", home)
-        value = value:gsub("%$PATH", os.getenv("PATH") or "")
+            if key then
+              value = value:gsub("^[\"']", ""):gsub("[\"']$", "")
+              value = value:gsub("%$HOME", home)
+              value = value:gsub("%$PATH", os.getenv("PATH") or "")
 
-        -- Deduplicate colon-separated values. `hyprctl reload` re-runs this
-        -- file, and without this PATH would grow a little on every reload.
-        if value:find(":", 1, true) then
-          local seen, parts = {}, {}
-          for part in value:gmatch("[^:]+") do
-            if part ~= "" and not seen[part] then
-              seen[part] = true
-              parts[#parts + 1] = part
+              -- Deduplicate colon-separated values ONLY for PATH.
+              -- `hyprctl reload` re-runs this file, and without this PATH
+              -- would grow a little on every reload.
+              if key == "PATH" and value:find(":", 1, true) then
+                local seen, parts = {}, {}
+                for part in value:gmatch("[^:]+") do
+                  if part ~= "" and not seen[part] then
+                    seen[part] = true
+                    parts[#parts + 1] = part
+                  end
+                end
+                value = table.concat(parts, ":")
+              end
+
+              hl.env(key, value)
             end
           end
-          value = table.concat(parts, ":")
         end
-
-        hl.env(key, value)
+        file:close()
       end
     end
   end

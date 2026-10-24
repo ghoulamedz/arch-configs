@@ -12,11 +12,12 @@ set -euo pipefail
 command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
 
 # pacman -Slq prints "<repo>/<name>" for every package in the sync databases.
-# The preview runs pacman -Sii, which prints the description, dependencies,
-# download size and installed size for the highlighted entry.
+# Filter to official repos only (core, extra, multilib), show only package name.
+# {0} is the full repo/name for preview/install.
 mapfile -t chosen < <(
-  pacman -Slq | fzf --multi \
-    --preview 'pacman -Sii {1}' \
+  pacman -Slq | grep -E '^(core|extra|multilib)/' | fzf --multi \
+    --delimiter='/' --with-nth=2 \
+    --preview 'pacman -Sii {0}' \
     --preview-label='alt-p: toggle preview  ·  alt-j/k: scroll  ·  tab: multi-select' \
     --preview-label-pos='bottom' \
     --preview-window 'down:65%:wrap' \

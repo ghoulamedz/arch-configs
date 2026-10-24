@@ -34,9 +34,12 @@ case $action in
     ;;
   +*)
     value=${action#+}; value=${value%\%}
-    # --allow-boost lets the volume go above 100%, which is useful for quiet
-    # sources and is what the keyboard keys do on a laptop normally.
-    pamixer --allow-boost -i "$value"
+    # Cap at 100% to avoid clipping/distortion. Use --allow-boost only for quiet
+    # sources if explicitly desired (not the default).
+    local current=$(pamixer --get-volume)
+    local new=$(( current + value ))
+    (( new > 100 )) && new=100
+    pamixer --set-volume "$new"
     ;;
   -*)
     value=${action#-}; value=${value%\%}

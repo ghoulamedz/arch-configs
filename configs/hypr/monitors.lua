@@ -1,7 +1,10 @@
 -- ~/.config/hypr/monitors.lua
 --
--- List the outputs Hyprland can see, with every mode each supports:
---   hyprctl monitors all
+-- Internal panel name varies by hardware (eDP-1, eDP-2, eDP-3, LVDS-1, etc.).
+-- Configure via HYPR_INTERNAL_PANEL env var, or it will be auto-detected at
+-- runtime by the display-scale script which persists to monitors.conf.
+-- Falls back to "eDP-2" (common on this hardware).
+local internal_panel = os.getenv("HYPR_INTERNAL_PANEL") or "eDP-2"
 
 -- Internal laptop panel. The mode is given explicitly rather than as
 -- "preferred", so the panel's 144 Hz refresh is used instead of whatever rate
@@ -10,7 +13,7 @@
 -- Specific rules must come before the wildcard below: Hyprland applies the first
 -- matching rule.
 hl.monitor({
-  output   = "eDP-2",
+  output   = internal_panel,
   mode     = "1920x1080@144",
   position = "0x0",
   scale    = 1,

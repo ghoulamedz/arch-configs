@@ -41,7 +41,8 @@ sudo pacman -Syu
 echo
 echo "==> AUR"
 if command -v paru >/dev/null; then
-  paru -Syu
+  # --noconfirm to avoid hanging on AUR conflicts in a non-interactive terminal
+  paru -Syu --noconfirm
 else
   echo "paru is not installed; skipping the AUR."
 fi
@@ -50,10 +51,8 @@ echo
 echo "==> Done."
 # A kernel or NVIDIA update needs a reboot to take effect. Say so rather than
 # leaving it to be discovered later.
-if [[ -n $(command -v checkupdates) ]]; then
-  if pacman -Q linux >/dev/null 2>&1; then
-    echo "If the kernel or nvidia-open was updated, reboot before the next suspend."
-  fi
+if pacman -Q linux >/dev/null 2>&1; then
+  echo "If the kernel or nvidia-open was updated, reboot before the next suspend."
 fi
 
 # Keep the window open so the output can be read; this runs in a floating

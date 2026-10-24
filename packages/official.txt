@@ -103,6 +103,7 @@ ttf-nerd-fonts-symbols
 ttf-scheherazade-new
 inter-font
 adwaita-fonts
+adwaita-cursors
 
 enchant
 hunspell
@@ -174,4 +175,6 @@ gpu-screen-recorder
 tesseract
 tesseract-data-eng
 tesseract-data-osd
+tesseract-data-fra
+tesseract-data-ara
 qalculate-qt

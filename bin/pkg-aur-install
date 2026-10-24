@@ -11,16 +11,18 @@ set -euo pipefail
 command -v paru >/dev/null || { echo "paru is not installed" >&2; exit 1; }
 
 # paru -Slqa prints the name of every package the AUR knows about.
-# paru -Siia prints the AUR metadata for one; paru -Gpa prints its PKGBUILD.
+# Show only the package name; {0} is the full line for preview/install.
+# AUR packages don't have repo prefixes, but guard with delimiter anyway.
 mapfile -t chosen < <(
   paru -Slqa | fzf --multi \
-    --preview 'paru -Siia {1}' \
+    --delimiter='/' --with-nth=-1 \
+    --preview 'paru -Siia {0}' \
     --preview-label='alt-b: PKGBUILD  ·  alt-p: toggle preview  ·  tab: multi-select' \
     --preview-label-pos='bottom' \
     --preview-window 'down:65%:wrap' \
     --bind 'alt-p:toggle-preview' \
-    --bind 'alt-b:change-preview:paru -Gpa {1} | tail -n +5' \
-    --bind 'alt-B:change-preview:paru -Siia {1}' \
+    --bind 'alt-b:change-preview:paru -Gpa {0} | tail -n +5' \
+    --bind 'alt-B:change-preview:paru -Siia {0}' \
     --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up' \
     --bind 'alt-k:preview-up,alt-j:preview-down' \
     --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'

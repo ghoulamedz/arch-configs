@@ -1,3 +1,25 @@
+[options]
+
+# Background color (hex format, default: 000000)
+background = 000000
+
+# Start in fullscreen mode (default: false)
+# fullscreen = true
+
+# Hide cursor when idle (default: true)
+# hide_cursor = true
+
+# Loop images (default: true)
+# loop = true
+
+# Scale mode: fit, crop, full (default: fit)
+# scale = fit
+
+[aliases]
+
+# Example alias
+# myalias = open
+
 [binds]
 
 # Print the current image file

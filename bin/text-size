@@ -27,24 +27,31 @@ MAX=20
 terminal_pt() { awk -v s="$1" 'BEGIN{ printf "%d", (s * 9 / 12) + 0.5 }'; }
 
 # The current size, recovered from the GTK factor.
+# Falls back to BASE if gsettings is unavailable (e.g., in TTY).
+# gsettings returns quoted strings like '1.0' - strip quotes.
 current_size() {
   local factor
-  factor=$(gsettings get org.gnome.desktop.interface text-scaling-factor)
+  if command -v gsettings >/dev/null 2>&1; then
+    factor=$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null | sed "s/'//g" || echo "1.0")
+  else
+    factor=1.0
+  fi
   awk -v f="$factor" -v b="$BASE" 'BEGIN{ printf "%d", (f * b) + 0.5 }'
 }
 
-# Rewrite the font size in the terminal configs. sed -E with an alternation that
-# matches the existing line, so running it repeatedly is safe.
+# Rewrite the font size in the terminal configs. sed -E with patterns that
+# match common formats, so running it repeatedly is safe.
 set_terminal_font() {
   local pt=$1
 
   if [[ -f $HOME/.config/ghostty/config ]]; then
-    sed -i -E "s|^font-size = .*|font-size = ${pt}|" "$HOME/.config/ghostty/config"
+    # Match: font-size = 12, font-size=12, font-size =  12 (multiple spaces)
+    sed -i -E "s|^font-size[[:space:]]*=[[:space:]]*.*|font-size = ${pt}|" "$HOME/.config/ghostty/config"
   fi
 
   if [[ -f $HOME/.config/foot/foot.ini ]]; then
-    sed -i -E "s|^font=JetBrainsMono Nerd Font:size=.*|font=JetBrainsMono Nerd Font:size=${pt}|" \
-      "$HOME/.config/foot/foot.ini"
+    # Match: font=JetBrainsMono Nerd Font:size=9, font=Font:size=9, etc.
+    sed -i -E "s|^(font=[^:]+:size=).*|\1${pt}|" "$HOME/.config/foot/foot.ini"
   fi
 }
 
