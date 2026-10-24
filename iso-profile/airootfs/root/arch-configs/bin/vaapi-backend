@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+#
+# vaapi-backend — choose the VA-API driver the session uses, and run single
+# commands on the NVIDIA dGPU with NVDEC.
+#
+# Why this exists: VA-API is not one system setting. libva picks a driver from
+# LIBVA_DRIVER_NAME, and the correct driver depends on WHICH GPU the client is
+# rendering on. On a hybrid laptop that is per-process, which is why no GUI for
+# this exists anywhere.
+#
+#   Intel iGPU rendering (the compositor, most apps)  -> iHD
+#   NVIDIA dGPU rendering (PRIME offload)             -> nvidia
+#
+# So the persisted default is iHD, and `run` wraps a single command with the
+# PRIME offload environment plus LIBVA_DRIVER_NAME=nvidia.
+#
+# The choice is written to ~/.config/environment.d/vaapi.conf, which systemd's
+# user manager reads at session start (uwsm gives Hyprland a systemd user
+# session). Nothing in the Hyprland config or any terminal config sets
+# LIBVA_DRIVER_NAME, so this file is the single source of truth.
+
+set -euo pipefail
+
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/environment.d/vaapi.conf"
+DRI_DIR="/usr/lib/dri"
+
+declare -A DRIVER_SO=(
+  [iHD]="$DRI_DIR/iHD_drv_video.so"          # intel-media-driver, Gen8+
+  [nvidia]="$DRI_DIR/nvidia_drv_video.so"    # libva-nvidia-driver, NVDEC
+  [i965]="$DRI_DIR/i965_drv_video.so"        # libva-intel-driver, legacy
+)
+DRIVER_ORDER=(iHD nvidia i965)
+
+die() { printf 'vaapi-backend: %s\n' "$*" >&2; exit 1; }
+
+installed() { [[ -e ${DRIVER_SO[$1]:-} ]]; }
+
+persisted() {
+  [[ -r $CONF ]] || return 0
+  sed -n 's/^LIBVA_DRIVER_NAME=//p' "$CONF" | tail -1
+}
+
+# Rewrite only our own key so anything else the user put in the file survives.
+set_driver() {
+  local d=${1:-}
+  [[ -n $d ]] || die "usage: vaapi-backend set <iHD|nvidia|i965>"
+  installed "$d" || die "driver '$d' is not installed (${DRIVER_SO[$d]:-unknown} missing)"
+
+  mkdir -p "$(dirname "$CONF")"
+  if [[ -f $CONF ]]; then
+    grep -v '^LIBVA_DRIVER_NAME=' "$CONF" >"$CONF.new" || true
+    mv "$CONF.new" "$CONF"
+  fi
+  printf 'LIBVA_DRIVER_NAME=%s\n' "$d" >>"$CONF"
+
+  printf 'persisted LIBVA_DRIVER_NAME=%s -> %s\n' "$d" "$CONF"
+  printf 'takes effect in new sessions and new apps.\n'
+  printf 'for this shell:  export LIBVA_DRIVER_NAME=%s\n' "$d"
+}
+
+status() {
+  printf 'persisted  : %s\n' "$(persisted || true)"
+  printf 'this shell : %s\n' "${LIBVA_DRIVER_NAME:-(unset)}"
+  printf 'installed  : %s\n' "$(for d in "${DRIVER_ORDER[@]}"; do installed "$d" && printf '%s ' "$d"; done)"
+  printf '\n'
+  command -v vainfo >/dev/null || die "vainfo missing — install libva-utils"
+
+  local d
+  for d in "${DRIVER_ORDER[@]}"; do
+    installed "$d" || continue
+    printf '== %s ==\n' "$d"
+    LIBVA_DRIVER_NAME="$d" vainfo 2>&1 \
+      | grep -E 'vainfo:|libva info|Driver version|VAProfile(H264|HEVC|AV1|VP9|VP8)' \
+      | head -12 || printf '  (driver failed to initialise)\n'
+    printf '\n'
+  done
+}
+
+# VA-API follows the GPU the client actually renders on, so offloading rendering
+# to the dGPU and pointing libva at the dGPU have to happen together.
+run_nvidia() {
+  [[ $# -gt 0 ]] || die "usage: vaapi-backend run <command> [args...]"
+  exec env \
+    __NV_PRIME_RENDER_OFFLOAD=1 \
+    __VK_LAYER_NV_optimus=NVIDIA_only \
+    __GLX_VENDOR_LIBRARY_NAME=nvidia \
+    LIBVA_DRIVER_NAME=nvidia \
+    "$@"
+}
+
+menu() {
+  command -v fzf >/dev/null || die "fzf missing"
+
+  local choice
+  choice=$(fzf --height=12 --reverse --prompt='vaapi backend> ' <<'EOF'
+status
+set iHD
+set nvidia
+run with NVIDIA offload
+EOF
+  ) || return 0
+
+  case $choice in
+    status)                 status ;;
+    'set iHD')              set_driver iHD ;;
+    'set nvidia')           set_driver nvidia ;;
+    'run with NVIDIA offload')
+      local cmd
+      read -r -e -i 'mpv ' -p 'command: ' cmd
+      [[ -n ${cmd// } ]] || return 0
+      run_nvidia $cmd ;;
+  esac
+}
+
+case ${1:-menu} in
+  status) status ;;
+  set)    shift; set_driver "$@" ;;
+  run)    shift; run_nvidia "$@" ;;
+  menu)   menu ;;
+  -h|--help|help)
+    cat <<'EOF'
+usage: vaapi-backend [status | set <iHD|nvidia|i965> | run <command> | menu]
+
+  status   show the persisted driver, this shell's value, and probe every
+           installed driver with vainfo
+  set D    persist LIBVA_DRIVER_NAME=D for the whole session
+  run CMD  run CMD on the NVIDIA dGPU with NVDEC
+  menu     fzf picker over all of the above
+EOF
+    ;;
+  *) die "unknown command '$1' — try: vaapi-backend help" ;;
+esac

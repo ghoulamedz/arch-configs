@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
 #
 # build-iso.sh - Build the arch-configs custom ISO
-# Run from the arch-configs repo root
+# Run build-aur-repo.sh first to create the local AUR repository
 
 set -euo pipefail
-
-REPO_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-ISO_PROFILE_DIR="$REPO_ROOT/iso-profile"
-AUR_REPO_DIR="/tmp/arch-configs-aur-repo"
-WORK_DIR="/tmp/archiso-tmp"
-OUT_DIR="$REPO_ROOT/out"
 
 # Colors
 GREEN='\033[0;32m'
@@ -21,65 +15,77 @@ log() { echo -e "${GREEN}[BUILD-ISO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 die() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
-# Check requirements
-[[ -f /etc/arch-release ]] || die "Must run on Arch Linux"
-command -v mkarchiso >/dev/null || die "archiso package not installed (pacman -S archiso)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ISO_PROFILE="$REPO_ROOT/iso-profile"
+AUR_REPO_DIR="/tmp/arch-configs-aur-repo"
+OUT_DIR="$REPO_ROOT/out"
 
-# Check if AUR repo exists
-if [[ ! -d "$AUR_REPO_DIR" ]]; then
-  warn "AUR repo not found at $AUR_REPO_DIR"
-  warn "Run ./build-aur-repo.sh first to build AUR packages"
-  read -rp "Continue without AUR packages? [y/N] " -n 1
-  echo
-  [[ ${REPLY,,} == y ]] || die "Aborted"
-  HAS_AUR_REPO=0
+# Check dependencies
+for cmd in mkarchiso reflector; do
+  command -v "$cmd" >/dev/null || die "Missing required command: $cmd (install archiso and reflector)"
+done
+
+# Check AUR repo exists
+[[ -d "$AUR_REPO_DIR" ]] || die "AUR repo not found at $AUR_REPO_DIR. Run ./build-aur-repo.sh first"
+[[ -f "$AUR_REPO_DIR/arch-configs-aur.db.tar.gz" ]] || die "AUR repo database not found. Run ./build-aur-repo.sh first"
+
+log "Using AUR repo: $AUR_REPO_DIR"
+
+# Copy AUR repo into airootfs for build-time access
+AUR_TARGET="$ISO_PROFILE/airootfs/run/archiso/bootmnt/arch-configs-aur"
+log "Copying AUR repo to $AUR_TARGET..."
+rm -rf "$AUR_TARGET"
+mkdir -p "$AUR_TARGET"
+cp -r "$AUR_REPO_DIR"/* "$AUR_TARGET/"
+
+# Stage the arch-configs repo into airootfs for install.sh
+ARCH_CONFIGS_TARGET="$ISO_PROFILE/airootfs/root/arch-configs"
+log "Staging arch-configs repo to $ARCH_CONFIGS_TARGET..."
+rm -rf "$ARCH_CONFIGS_TARGET"
+mkdir -p "$ARCH_CONFIGS_TARGET"
+rsync -a --delete \
+  --exclude='.git' \
+  --exclude='out' \
+  --exclude='iso-profile' \
+  --exclude='*.iso' \
+  "$REPO_ROOT/" "$ARCH_CONFIGS_TARGET/"
+
+# Generate ranked mirrorlist for the live environment
+log "Generating ranked mirrorlist..."
+MIRRORLIST="$ISO_PROFILE/airootfs/etc/pacman.d/mirrorlist"
+mkdir -p "$(dirname "$MIRRORLIST")"
+
+if command -v reflector >/dev/null 2>&1; then
+  reflector --protocol https --latest 20 --sort rate --save "$MIRRORLIST" || warn "reflector failed, using fallback"
 else
-  HAS_AUR_REPO=1
-  log "Using AUR repo at $AUR_REPO_DIR"
+  warn "reflector not available, creating minimal mirrorlist"
+  cat > "$MIRRORLIST" <<'EOF'
+# Fallback mirrorlist - rank with reflector after boot
+Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+Server = https://mirrors.mit.edu/archlinux/$repo/os/$arch
+Server = https://mirrors.ocf.berkeley.edu/archlinux/$repo/os/$arch
+EOF
 fi
 
-# Prepare ISO profile with AUR repo if available
-if (( HAS_AUR_REPO )); then
-  log "Copying AUR repo to ISO profile airootfs..."
-  mkdir -p "$ISO_PROFILE_DIR/airootfs/run/archiso/bootmnt"
-  cp -r "$AUR_REPO_DIR" "$ISO_PROFILE_DIR/airootfs/run/archiso/bootmnt/arch-configs-aur"
-fi
-
-# Copy the arch-configs repo into the ISO so it's available for install.sh
-log "Staging arch-configs repo into ISO profile..."
-mkdir -p "$ISO_PROFILE_DIR/airootfs/root/arch-configs"
-rsync -a --delete --exclude '.git/objects/pack/tmp*' \
-  "$REPO_ROOT/" "$ISO_PROFILE_DIR/airootfs/root/arch-configs/"
-
-# Create the mirrorlist for the live environment
-log "Generating ranked mirrorlist for live ISO..."
-if command -v reflector >/dev/null; then
-  reflector --latest 20 --protocol https --sort rate --save "$ISO_PROFILE_DIR/airootfs/etc/pacman.d/mirrorlist" || warn "reflector failed, using default mirrorlist"
-else
-  warn "reflector not available, mirrorlist will be generated at runtime"
-fi
+# Prepare output directory
+mkdir -p "$OUT_DIR"
 
 # Build the ISO
 log "Building ISO with mkarchiso..."
-mkdir -p "$OUT_DIR"
+cd "$ISO_PROFILE"
+sudo mkarchiso -v -w /tmp/arch-configs-iso-build -o "$OUT_DIR" .
 
-mkarchiso -v -r -w "$WORK_DIR" -o "$OUT_DIR" "$ISO_PROFILE_DIR" || die "mkarchiso failed"
-
-# Find the generated ISO
-ISO_FILE=$(find "$OUT_DIR" -name '*.iso' -type f | head -1)
-if [[ -n $ISO_FILE ]]; then
+# Find the built ISO
+ISO_FILE=$(find "$OUT_DIR" -name 'arch-configs-*.iso' -type f | head -1)
+if [[ -n "$ISO_FILE" ]]; then
   log "ISO built successfully: $ISO_FILE"
   ls -lh "$ISO_FILE"
-  
-  # Generate checksums
-  log "Generating checksums..."
-  sha256sum "$ISO_FILE" > "$ISO_FILE.sha256"
-  cat "$ISO_FILE.sha256"
+  echo
+  log "To write to USB:"
+  echo "  sudo dd if=$ISO_FILE of=/dev/sdX bs=4M status=progress && sync"
+  echo
+  log "To test in QEMU:"
+  echo "  qemu-system-x86_64 -enable-kvm -m 4G -cdrom $ISO_FILE -bios /usr/share/edk2-ovmf/x64/OVMF.fd"
 else
-  die "ISO file not found in $OUT_DIR"
+  die "ISO not found in $OUT_DIR"
 fi
-
-log "Done! You can now write the ISO to USB with:"
-echo "  sudo dd if=$ISO_FILE of=/dev/sdX bs=4M status=progress && sync"
-echo "Or test with QEMU:"
-echo "  qemu-system-x86_64 -enable-kvm -m 4G -cdrom $ISO_FILE -bios /usr/share/edk2-ovmf/x64/OVMF.fd"

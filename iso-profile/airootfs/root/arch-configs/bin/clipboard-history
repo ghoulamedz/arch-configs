@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#
+# clipboard-history — pick an entry from the clipboard history and put it back on
+# the clipboard.
+#
+# cliphist stores every wl-paste event; this reads that store. Ctrl+X deletes the
+# highlighted entry from the history as well as showing it.
+#
+# The store is filled by `wl-paste --watch cliphist store`, started in
+# ~/.config/hypr/autostart.lua.
+
+set -euo pipefail
+
+command -v cliphist >/dev/null || { echo "cliphist is not installed" >&2; exit 1; }
+command -v wl-copy  >/dev/null || { echo "wl-clipboard is not installed" >&2; exit 1; }
+
+# cliphist list prints "<id><TAB><preview>".
+#   --delimiter / --with-nth=2..  hide the id and show only the preview
+#   {1} in the bindings            the id, which is what cliphist decode wants
+selection=$(
+  cliphist list | fzf \
+    --delimiter='\t' --with-nth=2.. \
+    --preview 'cliphist decode {1}' \
+    --preview-window 'down:60%:wrap' \
+    --bind 'ctrl-x:execute-silent(printf "%s\n" {1} | cliphist delete)+reload(cliphist list)' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+) || exit 0
+
+[[ -n $selection ]] || exit 0
+
+# cliphist decode turns the stored entry back into the original bytes. Piping it
+# to wl-copy puts it on the clipboard, ready to paste.
+cliphist decode <<<"$selection" | wl-copy

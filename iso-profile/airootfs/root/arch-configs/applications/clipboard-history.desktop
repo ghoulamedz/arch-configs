@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/clipboard-history.desktop
+#
+# Ctrl+X in the picker deletes the highlighted entry from the history.
+Type=Application
+Name=Clipboard History
+GenericName=Clipboard manager
+Comment=Search everything copied recently and put it back on the clipboard
+Exec=foot --app-id=float-clipboard-history -e clipboard-history
+Icon=edit-paste
+Terminal=false
+Categories=Utility;
+Keywords=clipboard;clip;copy;paste;history;cliphist;
+StartupNotify=false

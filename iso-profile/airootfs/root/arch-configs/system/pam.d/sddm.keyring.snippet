@@ -1,0 +1,12 @@
+# Lines appended to /etc/pam.d/sddm by install-chroot.sh.
+# /etc/pam.d/sddm is owned by the sddm package, so it is amended in place rather
+# than replaced, and only these two lines are added.
+
+# `optional` means a failure here cannot block login — it only means the keyring
+# stays locked. Without this, apps that store secrets (browsers, git, VS Code)
+# prompt for the keyring password separately after every login.
+auth       optional    pam_gnome_keyring.so
+
+# `auto_start` starts gnome-keyring-daemon with the session and unlocks the
+# login keyring with the password already typed at SDDM.
+session    optional    pam_gnome_keyring.so auto_start

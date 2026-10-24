@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/toggle-nightlight.desktop
+#
+# Temperature and schedule come from ~/.config/hypr/hyprsunset.conf.
+Type=Application
+Name=Toggle Night Light
+GenericName=Display settings
+Comment=Warm the screen colour to reduce blue light
+Exec=toggle-nightlight toggle
+Icon=weather-clear-night
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=night;light;blue;filter;warm;hyprsunset;eyestrain;
+StartupNotify=false

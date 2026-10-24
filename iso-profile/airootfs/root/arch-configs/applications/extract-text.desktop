@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/extract-text.desktop
+#
+# OCR with tesseract. Useful for text inside a PDF, a video frame or an image
+# where selecting is impossible.
+Type=Application
+Name=Extract Text (OCR)
+GenericName=OCR
+Comment=Select an area of the screen and copy the text in it to the clipboard
+Exec=extract-text
+Icon=insert-text
+Terminal=false
+Categories=Graphics;
+Keywords=ocr;text;extract;recognise;recognize;tesseract;copy;
+StartupNotify=false

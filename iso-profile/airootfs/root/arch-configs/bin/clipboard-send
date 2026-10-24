@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# clipboard-send <copy|paste|cut> — send the correct clipboard chord to whatever
+# window has focus.
+#
+# Why this exists: terminals and GUI applications disagree about the clipboard.
+# In a terminal Ctrl+C interrupts the running program, so copy and paste are
+# Ctrl+Insert and Shift+Insert instead. Binding SUPER+C to a single chord would
+# therefore be wrong in half the windows on the screen.
+#
+# hyprctl dispatch sendshortcut delivers a real key event to the focused window,
+# including to layer-shell surfaces. A synthetic keyboard (wtype) cannot do that,
+# because a physically held SUPER merges into the injected chord.
+#
+# Bound to SUPER+C, SUPER+V and SUPER+X in ~/.config/hypr/bindings.lua.
+
+set -euo pipefail
+
+action=${1:-}
+case $action in
+  copy|paste|cut) ;;
+  *) echo "usage: clipboard-send <copy|paste|cut>" >&2; exit 2 ;;
+esac
+
+# The focused window's class. Empty if nothing is focused, which falls through to
+# the GUI chords.
+class=$(hyprctl activewindow -j 2>/dev/null | jq -r '.class // empty')
+
+# Terminal emulators that want the Insert-based chords. Add to this list if you
+# install another terminal.
+case $class in
+  ghostty|foot|Alacritty|kitty|wezterm|org.wezfurlong.wezterm|XTerm|xterm) terminal=1 ;;
+  *) terminal=0 ;;
+esac
+
+if (( terminal )); then
+  case $action in
+    copy)  chord='CTRL,Insert' ;;
+    paste) chord='SHIFT,Insert' ;;
+    cut)   chord='CTRL,X' ;;
+  esac
+else
+  case $action in
+    copy)  chord='CTRL,C' ;;
+    paste) chord='CTRL,V' ;;
+    cut)   chord='CTRL,X' ;;
+  esac
+fi
+
+# sendshortcut takes <mods>,<key>,<window>. The trailing comma is the empty
+# window argument, meaning "the focused window".
+hyprctl dispatch sendshortcut "${chord},"

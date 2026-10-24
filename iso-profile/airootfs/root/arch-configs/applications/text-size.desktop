@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/text-size.desktop
+#
+# GTK applications rescale immediately; terminals pick the new size up when a new
+# one is opened.
+Type=Application
+Name=Text Size
+GenericName=Accessibility
+Comment=Resize text across GTK applications and the terminal
+Exec=foot --app-id=float-text-size -e text-size menu
+Icon=preferences-desktop-font
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=font;text;size;scaling;accessibility;zoom;larger;smaller;
+StartupNotify=false

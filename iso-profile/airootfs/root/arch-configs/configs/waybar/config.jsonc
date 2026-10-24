@@ -1,0 +1,193 @@
+// ~/.config/waybar/config.jsonc — the top bar.
+// Reference: https://github.com/Alexays/Waybar/wiki/Configuration
+//
+// Layout follows Omarchy's bar: three zones, same widgets, same order. The
+// difference is the implementation — Waybar instead of Quickshell, and each
+// widget's click action calls a script in ~/.local/bin rather than an
+// omarchy-* command.
+//
+// JSONC allows // comments; Waybar parses them.
+
+{
+  "layer": "top",              // draw above normal windows
+  "position": "top",           // the bar lives at the top of the screen
+  "height": 28,                // pixels
+  "spacing": 4,                // gap between modules
+  "margin-top": 0,
+  "margin-bottom": 0,
+  "margin-left": 0,
+  "margin-right": 0,
+  "fixed-center": true,        // keep the centre group truly centred
+
+  // Left: launcher, then workspaces.
+  "modules-left": [
+    "custom/launcher",
+    "hyprland/workspaces"
+  ],
+
+  // Centre: the clock, then the small status toggles.
+  "modules-center": [
+    "clock",
+    "custom/scale",
+    "custom/keepawake",
+    "custom/nightlight",
+    "custom/pkg"
+  ],
+
+  // Right: system tray and indicators.
+  "modules-right": [
+    "tray",
+    "bluetooth",
+    "network",
+    "pulseaudio",
+    "battery",
+    "custom/power"
+  ],
+
+  // -------------------------------------------------------------------------
+  // Left
+  // -------------------------------------------------------------------------
+
+  "custom/launcher": {
+    "format": "󰍜",                       // Nerd Font bars glyph (menu icon)
+    "tooltip": false,
+    "on-click": "fuzzel"                 // the application launcher
+  },
+
+  "hyprland/workspaces": {
+    // One button per existing workspace, with the focused one highlighted.
+    "format": "{icon}",
+    "on-click": "activate",              // click a workspace to switch to it
+    "all-outputs": false,                // only workspaces on this monitor
+    "persistent-workspaces": {
+      // Always show the first five, even when empty, so the bar does not
+      // reflow every time a workspace appears or disappears.
+      "*": 5
+    },
+    "format-icons": {
+      "1": "1", "2": "2", "3": "3", "4": "4", "5": "5",
+      "6": "6", "7": "7", "8": "8", "9": "9", "10": "10",
+      // A window that is asking for attention.
+      "urgent": "⚠",
+      "default": "○"
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // Centre
+  // -------------------------------------------------------------------------
+
+  "clock": {
+    // Saturday 14:32 in the bar; the full date in the tooltip.
+    "format": "{:%A %H:%M}",
+    "tooltip-format": "{:%d %B %Y}",
+    // Click opens the year calendar. `cal` comes from util-linux, which is
+    // already part of base; piping into less keeps the window open, because cal
+    // prints and exits immediately.
+    "on-click": "foot --app-id=float-clock -e sh -c 'cal -y | less'",
+    "interval": 30
+  },
+
+  "custom/scale": {
+    // Prints the focused monitor's scale factor. Refreshed every 5 seconds so
+    // it follows a change made with the keybinding.
+    "exec": "display-scale show",
+    "interval": 5,
+    "format": " {}",
+    "tooltip-format": "Display scale: {}. Click to cycle.",
+    "on-click": "display-scale cycle"
+  },
+
+  "custom/keepawake": {
+    // "awake" while hypridle is stopped, "idle" while it is running.
+    "exec": "toggle-idle status",
+    "interval": 5,
+    "format": " {}",
+    "tooltip-format": "Idle lock: {}. Click to toggle.",
+    "on-click": "toggle-idle toggle"
+  },
+
+  "custom/nightlight": {
+    "exec": "toggle-nightlight status",
+    "interval": 10,
+    "format": " {}",
+    "tooltip-format": "Night light: {}. Click to toggle.",
+    "on-click": "toggle-nightlight toggle"
+  },
+
+  "custom/pkg": {
+    // Prints the number of pending updates, or nothing at all when there are
+    // none — an empty output makes Waybar hide the module entirely.
+    "exec": "system-update count",
+    "interval": 3600,
+    "format": " {}",
+    "tooltip": true,
+    "on-click": "foot --app-id=float-system-update -e system-update"
+  },
+
+  // -------------------------------------------------------------------------
+  // Right
+  // -------------------------------------------------------------------------
+
+  "tray": {
+    "icon-size": 16,
+    "spacing": 8
+  },
+
+  "bluetooth": {
+    "format": "{icon}",
+    "format-icons": {
+      "enabled": "",
+      "disabled": ""
+    },
+    "tooltip-format": "{controller_alias}\t{controller_address}",
+    "tooltip-format-connected": "{controller_alias}\t{controller_address}\n\n{device_enumerate}",
+    "tooltip-format-enumerate-connected": "{device_alias}\t{device_address}",
+    "on-click": "blueman-manager"
+  },
+
+  "network": {
+    // Shows signal strength when connected to wifi, and nothing when there is
+    // no link at all.
+    "format-wifi": "{icon} {signalStrength}%",
+    "format-ethernet": " {ipaddr}",
+    "format-linked": " {ifname}",
+    "format-disconnected": "",
+    "format-icons": ["", "", "", "", ""],
+    "tooltip-format": "{essid}\n{ipaddr}\n{bandwidthDownBits} down",
+    "on-click": "foot --app-id=float-nmtui -e nmtui"
+  },
+
+  "pulseaudio": {
+    "format": "{icon} {volume}%",
+    "format-muted": "",
+    "format-icons": {
+      "default": ["", "", ""]
+    },
+    // Scroll over the module to change the volume; click to mute.
+    "on-scroll-up": "osd-volume +5%",
+    "on-scroll-down": "osd-volume 5%-",
+    "on-click": "osd-volume toggle",
+    "on-click-right": "pavucontrol",
+    "tooltip-format": "{desc} at {volume}%"
+  },
+
+  "battery": {
+    "states": {
+      "warning": 20,
+      "critical": 10
+    },
+    "format": "{icon} {capacity}%",
+    "format-charging": "󰂄 {capacity}%",
+    "format-plugged": "󰁹 {capacity}%",  // plugged in but not charging (full)
+    "format-icons": ["", "", "", "", ""],
+    "tooltip-format": "{timeTo}\n{capacity}% — {power}W",
+    "on-click": "foot --app-id=float-power-menu -e power-menu"
+  },
+
+  "custom/power": {
+    "format": "",
+    "tooltip": false,
+    "on-click": "foot --app-id=float-power-menu -e power-menu"
+  }
+}

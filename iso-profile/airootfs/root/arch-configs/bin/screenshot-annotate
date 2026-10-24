@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# screenshot-annotate — select a region and open it in satty to draw on it.
+#
+# satty is an image editor built for this: arrows, boxes, blur, text. It writes
+# the result where it is told to and can also copy it to the clipboard.
+
+set -euo pipefail
+
+DIR="$HOME/Pictures/Screenshots"
+install -d "$DIR"
+
+# A scratch file for the raw capture. The trap removes it however the script
+# exits, including when satty is closed with a signal.
+tmp=$(mktemp --suffix=.png)
+trap 'rm -f "$tmp"' EXIT
+
+geometry=$(slurp) || exit 0
+grim -g "$geometry" "$tmp"
+
+out="$DIR/$(date +%Y-%m-%d_%H-%M-%S)_annotated.png"
+
+# No `exec` here on purpose. exec replaces this shell without running the EXIT
+# trap, which would leak a full-screen PNG into /tmp on every annotation. satty
+# is waited for instead, and the trap removes the capture however it exits.
+satty \
+  --filename "$tmp" \
+  --output-filename "$out" \
+  --copy-command 'wl-copy' \
+  --early-exit

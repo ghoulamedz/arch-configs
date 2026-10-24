@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# toggle-nightlight [toggle|status|on|off] — the blue-light filter.
+#
+# hyprsunset ships a systemd user unit, so this starts and stops that unit rather
+# than managing a bare process. Running under the user manager means uwsm
+# supervises it and it stops cleanly at logout.
+#
+# The temperature and schedule come from ~/.config/hypr/hyprsunset.conf.
+#
+# Bound to SUPER + CTRL + N. Waybar's custom/nightlight module calls `status`.
+
+set -euo pipefail
+
+action=${1:-toggle}
+
+is_running() { systemctl --user is-active --quiet hyprsunset.service 2>/dev/null; }
+
+case $action in
+  status)
+    # JSON, so Waybar attaches the class that style.css colours with
+    # #custom-nightlight.on.
+    if is_running; then
+      printf '{"text":"on","class":"on","tooltip":"Night light is on"}\n'
+    else
+      printf '{"text":"off","class":"off","tooltip":"Night light is off"}\n'
+    fi
+    ;;
+
+  on)
+    systemctl --user start hyprsunset.service
+    notify-send -a nightlight -i weather-clear-night "Night light on"
+    ;;
+
+  off)
+    systemctl --user stop hyprsunset.service
+    notify-send -a nightlight -i weather-clear "Night light off"
+    ;;
+
+  toggle)
+    if is_running; then exec "$0" off; else exec "$0" on; fi
+    ;;
+
+  *)
+    echo "usage: toggle-nightlight [toggle|status|on|off]" >&2
+    exit 2
+    ;;
+esac

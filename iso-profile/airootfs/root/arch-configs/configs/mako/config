@@ -1,0 +1,53 @@
+# ~/.config/mako/config — notification daemon.
+# Reference: https://man.archlinux.org/man/mako.5
+#
+# Hyprland has no notification daemon of its own, so without this nothing can
+# post a notification at all. It is also where the volume and brightness
+# on-screen displays appear: osd-volume and osd-brightness send transient
+# notifications here, and the x-canonical-private-synchronous hint they set makes
+# each new one replace the previous one instead of stacking.
+
+# Position and size.
+anchor=top-right
+margin=12
+width=360
+max-visible=4
+
+# Appearance: Tokyo Night, matching the bar and the terminals.
+border-size=2
+border-radius=8
+border-color=#7aa2f7
+background-color=#1a1b26
+text-color=#a9b1d6
+padding=12
+font=JetBrainsMono Nerd Font 10
+
+# Draw above ordinary windows.
+layer=overlay
+
+# How long a notification stays by default, in milliseconds.
+default-timeout=5000
+
+# A new notification from the same application replaces that application's
+# previous one, rather than appearing beside it.
+group-by=app-name
+
+# Icons come from the notification itself; fall back to the application icon.
+icon-path=/usr/share/icons/Adwaita:/usr/share/pixmaps
+
+# Critical notifications are urgent, stay until dismissed, and are visually
+# distinct.
+[urgency=critical]
+border-color=#f7768e
+default-timeout=0
+
+# Low-priority notifications are quieter.
+[urgency=low]
+border-color=#565f89
+default-timeout=3000
+
+# The on-screen displays. The synchronous hint already makes them replace one
+# another; this shortens the timeout so they do not linger.
+[app-name=osd]
+default-timeout=1500
+border-color=#9ece6a

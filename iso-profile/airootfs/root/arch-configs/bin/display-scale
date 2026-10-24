@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+#
+# display-scale [show|cycle|up|down|SCALE] — change the focused monitor's scale.
+#
+# Replaces Omarchy's omarchy-hyprland-monitor-scaling. Scaling a Wayland output
+# means re-issuing the whole monitor rule, so this reads the monitor's current
+# mode, refresh and position from hyprctl and rebuilds the rule with a new scale.
+#
+# Bound to SUPER + SLASH (up) and SUPER + ALT + SLASH (down); Waybar's
+# custom/scale module calls `show` and `cycle`.
+
+set -euo pipefail
+
+# The steps offered when cycling. 1 is native; 1.25 and 1.6 are the useful
+# fractional steps; 2 is a large-screen/accessibility step.
+SCALES=(1 1.25 1.6 2)
+
+# Rebuild the monitor rule for the focused output, with the given scale, and
+# apply it. Use preferred/auto so hyprland picks the correct physical mode.
+#   monitor=NAME,preferred,auto,SCALE
+apply_scale() {
+  local scale=$1
+
+  hyprctl monitors -j | jq -r --arg s "$scale" '
+    .[] | select(.focused) |
+    "\(.name),preferred,auto,\($s)"
+  ' | while IFS= read -r rule; do
+    hyprctl keyword monitor "$rule"
+  done
+}
+
+# The focused monitor's current scale, as a plain number.
+current_scale() {
+  hyprctl monitors -j | jq -r '.[] | select(.focused) | .scale'
+}
+
+action=${1:-menu}
+
+case $action in
+  show)
+    # Waybar's format string picks this up; the bar appends the icon.
+    printf '%s\n' "$(current_scale)"
+    ;;
+
+  menu)
+    # The launcher entry and SUPER + CTRL + D land here: choose a scale by name,
+    # with the current value shown in the prompt.
+    choice=$(
+      printf '%s\n' "${SCALES[@]}" | fzf \
+        --prompt="scale (now $(current_scale))> " \
+        --color 'pointer:#7aa2f7,hl:#bb9af7'
+    ) || exit 0
+
+    [[ -n $choice ]] || exit 0
+    apply_scale "$choice"
+    notify-send -a display -i video-display "Display scale: $choice"
+    # Persist to monitors.conf so it survives reboot
+    persist_scale "$choice"
+    ;;
+
+  cycle)
+    now=$(current_scale)
+    # Find the current step and move one along, wrapping at the end.
+    next=${SCALES[0]}
+    for i in "${!SCALES[@]}"; do
+      if [[ ${SCALES[$i]} == "$now" ]]; then
+        next=${SCALES[$(( (i + 1) % ${#SCALES[@]} ))]}
+        break
+      fi
+    done
+    apply_scale "$next"
+    notify-send -a display -i video-display "Display scale: $next"
+    persist_scale "$next"
+    ;;
+
+  up)
+    # The next step strictly above the current scale.
+    now=$(current_scale)
+    for s in "${SCALES[@]}"; do
+      if awk -v a="$s" -v b="$now" 'BEGIN{exit !(a > b)}'; then
+        apply_scale "$s"
+        notify-send -a display -i video-display "Display scale: $s"
+        persist_scale "$s"
+        exit 0
+      fi
+    done
+    notify-send -a display -i video-display "Display scale: already at maximum"
+    ;;
+
+  down)
+    now=$(current_scale)
+    # Walk the list backwards to find the highest step below the current scale.
+    for (( i = ${#SCALES[@]} - 1; i >= 0; i-- )); do
+      s=${SCALES[$i]}
+      if awk -v a="$s" -v b="$now" 'BEGIN{exit !(a < b)}'; then
+        apply_scale "$s"
+        notify-send -a display -i video-display "Display scale: $s"
+        persist_scale "$s"
+        exit 0
+      fi
+    done
+    notify-send -a display -i video-display "Display scale: already at minimum"
+    ;;
+
+  *)
+    # Anything else is treated as an explicit scale value.
+    apply_scale "$action"
+    notify-send -a display -i video-display "Display scale: $action"
+    persist_scale "$action"
+    ;;
+esac
+
+# Persist scale to ~/.config/hypr/monitors.conf so it survives reboot
+persist_scale() {
+  local scale=$1
+  local conf=$HOME/.config/hypr/monitors.conf
+  mkdir -p "$(dirname "$conf")"
+  
+  # Persist ALL monitors: keep their current scale, but update the focused one
+  hyprctl monitors -j | jq -r --arg s "$scale" '
+    .[] |
+    "monitor = \(.name),preferred,auto,\(if .focused then $s else (.scale | tostring) end)"
+  ' > "$conf"
+  printf 'persisted scale %s (all monitors) to %s\n' "$scale" "$conf"
+}

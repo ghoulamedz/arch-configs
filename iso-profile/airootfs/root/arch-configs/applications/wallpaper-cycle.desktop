@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/wallpaper-cycle.desktop
+#
+# Acts immediately, so no terminal is needed.
+Type=Application
+Name=Next Wallpaper
+GenericName=Desktop
+Comment=Switch to the next wallpaper in ~/Pictures/wallpapers
+Exec=wallpaper-cycle next
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=wallpaper;background;next;cycle;rotate;
+StartupNotify=false

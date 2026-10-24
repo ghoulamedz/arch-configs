@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/nano.desktop
+#
+# nano ships no .desktop file. Launches an empty buffer; to open a file, use the
+# terminal (`nano path`).
+Type=Application
+Name=nano
+GenericName=Text Editor
+Comment=Simple terminal text editor
+Exec=ghostty -e nano
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;
+Keywords=nano;editor;text;write;edit;
+StartupNotify=false

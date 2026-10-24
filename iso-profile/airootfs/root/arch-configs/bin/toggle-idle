@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# toggle-idle [toggle|status|on|off] — keep the screen awake, or stop doing so.
+#
+# The mechanism is simply whether hypridle is running. With it stopped, nothing
+# dims, locks or suspends, so the machine stays awake indefinitely.
+#
+# hypridle ships no systemd unit, so this manages the process directly: setsid
+# detaches it from this script's process group, which means it survives the
+# script exiting.
+#
+# Bound to SUPER + CTRL + I. Waybar's custom/keepawake module calls `status`.
+
+set -euo pipefail
+
+action=${1:-toggle}
+
+# pgrep -x matches the process name exactly, so a script called "hypridle-something"
+# is not mistaken for hypridle itself.
+is_running() { pgrep -x hypridle >/dev/null 2>&1; }
+
+case $action in
+  status)
+    # JSON, not plain text. Waybar only attaches a CSS class to a custom module
+    # when the output is an object like this; plain text fills {text} but yields
+    # no class, so the #custom-keepawake.awake / .idle rules in style.css would
+    # never apply.
+    if is_running; then
+      printf '{"text":"idle","class":"idle","tooltip":"Idle lock is active"}\n'
+    else
+      printf '{"text":"awake","class":"awake","tooltip":"Keep awake — the screen will not lock"}\n'
+    fi
+    ;;
+
+  on)
+    if is_running; then
+      echo "hypridle is already running"
+    else
+      # setsid detaches it, so it is not killed when this script exits.
+      setsid hypridle >/dev/null 2>&1 &
+      notify-send -a keepawake -i preferences-system-screensaver \
+        "Idle lock enabled" "The screen will dim, lock and suspend again."
+    fi
+    ;;
+
+  off)
+    if is_running; then
+      pkill -x hypridle
+      notify-send -a keepawake -i preferences-system-screensaver \
+        "Keep awake" "The screen will not lock or suspend until you toggle this back."
+    else
+      echo "hypridle is not running"
+    fi
+    ;;
+
+  toggle)
+    # Re-exec with the resolved action, so there is one implementation of each.
+    if is_running; then exec "$0" off; else exec "$0" on; fi
+    ;;
+
+  *)
+    echo "usage: toggle-idle [toggle|status|on|off]" >&2
+    exit 2
+    ;;
+esac

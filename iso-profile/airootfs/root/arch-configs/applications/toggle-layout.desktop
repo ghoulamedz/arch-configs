@@ -1,0 +1,12 @@
+[Desktop Entry]
+# ~/.local/share/applications/toggle-layout.desktop
+Type=Application
+Name=Toggle Tiling Layout
+GenericName=Window management
+Comment=Switch between the dwindle and master tiling layouts
+Exec=toggle-layout
+Icon=view-grid
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=layout;tiling;dwindle;master;hyprland;arrange;
+StartupNotify=false

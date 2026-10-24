@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+#
+# text-size [show|reset|SIZE] — one knob for text size across GTK and terminals.
+#
+# Replaces Omarchy's omarchy-display-text-size, which drove three things in
+# lockstep. This drives two:
+#
+#   GTK applications   via org.gnome.desktop.interface text-scaling-factor,
+#                      which applies immediately to running applications
+#   terminals          by rewriting the font size in the ghostty and foot configs,
+#                      which applies to newly opened terminals
+#
+# The reference point is 12px, which is what the Waybar font size and the
+# terminal configs are built around. Size is accepted in px, 9 to 20.
+#
+# Bound to SUPER + SHIFT + T.
+
+set -euo pipefail
+
+# 12px is the baseline; the GTK factor is size/12.
+BASE=12
+MIN=9
+MAX=20
+
+# Terminal font size in points. The baseline is 9pt at 12px, so points scale as
+# size * 9 / 12 — the same ratio Omarchy used.
+terminal_pt() { awk -v s="$1" 'BEGIN{ printf "%d", (s * 9 / 12) + 0.5 }'; }
+
+# The current size, recovered from the GTK factor.
+# Falls back to BASE if gsettings is unavailable (e.g., in TTY).
+# gsettings returns quoted strings like '1.0' - strip quotes.
+current_size() {
+  local factor
+  if command -v gsettings >/dev/null 2>&1; then
+    factor=$(gsettings get org.gnome.desktop.interface text-scaling-factor 2>/dev/null | sed "s/'//g" || echo "1.0")
+  else
+    factor=1.0
+  fi
+  awk -v f="$factor" -v b="$BASE" 'BEGIN{ printf "%d", (f * b) + 0.5 }'
+}
+
+# Rewrite the font size in the terminal configs. sed -E with patterns that
+# match common formats, so running it repeatedly is safe.
+set_terminal_font() {
+  local pt=$1
+
+  if [[ -f $HOME/.config/ghostty/config ]]; then
+    # Match: font-size = 12, font-size=12, font-size =  12 (multiple spaces)
+    sed -i -E "s|^font-size[[:space:]]*=[[:space:]]*.*|font-size = ${pt}|" "$HOME/.config/ghostty/config"
+  fi
+
+  if [[ -f $HOME/.config/foot/foot.ini ]]; then
+    # Match: font=JetBrainsMono Nerd Font:size=9, font=Font:size=9, etc.
+    sed -i -E "s|^(font=[^:]+:size=).*|\1${pt}|" "$HOME/.config/foot/foot.ini"
+  fi
+}
+
+# Apply a size: GTK factor now, terminal font for new windows.
+apply_size() {
+  local size=$1
+  local factor
+
+  # The GTK factor is a float, computed to four decimal places.
+  factor=$(awk -v s="$size" -v b="$BASE" 'BEGIN{ printf "%.4f", s / b }')
+
+  gsettings set org.gnome.desktop.interface text-scaling-factor "$factor"
+  set_terminal_font "$(terminal_pt "$size")"
+
+  notify-send -a text-size -i font-select "Text size: ${size}px" \
+    "GTK applications update now; open a new terminal for the terminal size."
+}
+
+action=${1:-menu}
+
+case $action in
+  show)
+    # Waybar's module format string picks this up.
+    printf '%s\n' "$(current_size)"
+    ;;
+
+  menu)
+    # The launcher entry and SUPER + SHIFT + T land here: pick a size from the
+    # allowed range, with the current value shown in the prompt.
+    choice=$(
+      seq "$MIN" "$MAX" | fzf \
+        --prompt="text size px (now $(current_size))> " \
+        --color 'pointer:#7aa2f7,hl:#bb9af7'
+    ) || exit 0
+
+    [[ -n $choice ]] || exit 0
+    apply_size "$choice"
+    ;;
+
+  reset)
+    apply_size "$BASE"
+    ;;
+
+  ''|*[!0-9]*)
+    echo "usage: text-size [show|reset|SIZE]   (SIZE is ${MIN}-${MAX} px)" >&2
+    exit 2
+    ;;
+
+  *)
+    # 10# forces base 10. Without it `08` and `09` are read as invalid octal and
+    # bash errors with "value too great for base" instead of applying 8 or 9.
+    if (( 10#$action < MIN || 10#$action > MAX )); then
+      echo "text-size: ${action}px is out of range (${MIN}-${MAX})" >&2
+      exit 2
+    fi
+    apply_size "$action"
+    ;;
+esac

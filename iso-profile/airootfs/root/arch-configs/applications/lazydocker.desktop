@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/lazydocker.desktop
+#
+# lazydocker ships no .desktop file. Requires the docker service, which the
+# installer enables.
+Type=Application
+Name=lazydocker
+GenericName=Docker client
+Comment=Terminal UI for Docker: containers, images, volumes, logs
+Exec=ghostty -e lazydocker
+Icon=docker
+Terminal=false
+Categories=Development;System;
+Keywords=lazydocker;docker;container;image;volume;compose;logs;
+StartupNotify=false

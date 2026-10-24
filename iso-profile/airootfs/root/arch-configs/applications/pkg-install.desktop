@@ -1,0 +1,16 @@
+[Desktop Entry]
+# ~/.local/share/applications/pkg-install.desktop
+#
+# Makes ~/.local/bin/pkg-install reachable from the launcher (SUPER + SPACE).
+# Fuzzel matches on Name, GenericName, Comment, Keywords and Exec, so "ins",
+# "pacman" and "package" all find this.
+Type=Application
+Name=Install Package
+GenericName=Package installer
+Comment=Browse and install packages from the official Arch repositories
+Exec=foot --app-id=float-pkg-install -e pkg-install
+Icon=system-software-install
+Terminal=false
+Categories=System;PackageManager;
+Keywords=pacman;install;package;repo;official;software;
+StartupNotify=false

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#
+# screenshot-region — select a region of the screen, save it, and put it on the
+# clipboard.
+#
+# Replaces Omarchy's omarchy-capture-region. Bound to SUPER + CTRL + C.
+
+set -euo pipefail
+
+DIR="$HOME/Pictures/Screenshots"
+install -d "$DIR"
+
+file="$DIR/$(date +%Y-%m-%d_%H-%M-%S)_region.png"
+
+# slurp prints the geometry of the rectangle the user drags. If it is cancelled
+# it exits non-zero, and `set -e` stops the script before grim runs — so a
+# cancelled selection writes no file.
+geometry=$(slurp) || exit 0
+
+# -g captures exactly that rectangle.
+grim -g "$geometry" "$file"
+
+# Put the same bytes on the clipboard, so it can be pasted without saving first.
+wl-copy <"$file"
+
+# Confirm with a notification rather than silently.
+notify-send -a screenshot -i camera-photo "Screenshot saved" "$(basename "$file")"

@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/herdr.desktop
+#
+# herdr (AUR, herdr-bin) ships no .desktop file. It is the terminal workspace
+# manager for AI coding agents; also bound to SUPER + CTRL + RETURN.
+Type=Application
+Name=herdr
+GenericName=Workspace manager
+Comment=Terminal workspace manager for AI coding agents
+Exec=ghostty -e herdr
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;
+Keywords=herdr;agent;workspace;terminal;tmux;session;
+StartupNotify=false

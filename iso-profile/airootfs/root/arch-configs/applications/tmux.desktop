@@ -1,0 +1,16 @@
+[Desktop Entry]
+# ~/.local/share/applications/tmux.desktop
+#
+# tmux ships no .desktop file. -A attaches to the existing "main" session if there
+# is one, so repeated launches do not accumulate servers. Same as SUPER + ALT +
+# RETURN.
+Type=Application
+Name=tmux
+GenericName=Terminal Multiplexer
+Comment=Attach to the `main` tmux session, or create it
+Exec=ghostty -e tmux new-session -A -s main
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;System;
+Keywords=tmux;session;multiplexer;pane;window;terminal;
+StartupNotify=false

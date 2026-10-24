@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# pkg-install — fuzzy-finder TUI for installing packages from the official repos.
+#
+# Replaces Omarchy's omarchy-pkg-install. Same interaction: type to filter, Tab to
+# multi-select, Enter to confirm, with the highlighted package's full metadata
+# previewed below the list.
+
+set -euo pipefail
+
+# Fail early if fzf is missing rather than showing an empty list.
+command -v fzf >/dev/null || { echo "fzf is not installed" >&2; exit 1; }
+
+# pacman -Slq prints "<repo>/<name>" for every package in the sync databases.
+# Filter to official repos only (core, extra, multilib), show only package name.
+# {0} is the full repo/name for preview/install.
+mapfile -t chosen < <(
+  pacman -Slq | grep -E '^(core|extra|multilib)/' | fzf --multi \
+    --delimiter='/' --with-nth=2 \
+    --preview 'pacman -Sii {0}' \
+    --preview-label='alt-p: toggle preview  ·  alt-j/k: scroll  ·  tab: multi-select' \
+    --preview-label-pos='bottom' \
+    --preview-window 'down:65%:wrap' \
+    --bind 'alt-p:toggle-preview' \
+    --bind 'alt-d:preview-half-page-down,alt-u:preview-half-page-up' \
+    --bind 'alt-k:preview-up,alt-j:preview-down' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+)
+
+# Esc, or a selection of nothing: leave quietly without running pacman.
+(( ${#chosen[@]} )) || exit 0
+
+# --needed means an already-installed package is a no-op instead of a reinstall.
+sudo pacman -S --needed "${chosen[@]}"

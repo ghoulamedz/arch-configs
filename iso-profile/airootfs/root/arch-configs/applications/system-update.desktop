@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/system-update.desktop
+#
+# The whole update story: sudo pacman -Syu then paru -Syu. Nothing else on this
+# system needs updating.
+Type=Application
+Name=Update System
+GenericName=System
+Comment=Update official repository packages, then AUR packages
+Exec=foot --app-id=float-system-update -e system-update
+Icon=system-software-update
+Terminal=false
+Categories=System;PackageManager;
+Keywords=update;upgrade;updates;pacman;paru;system;refresh;
+StartupNotify=false

@@ -1,0 +1,38 @@
+[options]
+
+# Background color (hex format, default: 000000)
+background = 000000
+
+# Start in fullscreen mode (default: false)
+# fullscreen = true
+
+# Hide cursor when idle (default: true)
+# hide_cursor = true
+
+# Loop images (default: true)
+# loop = true
+
+# Scale mode: fit, crop, full (default: fit)
+# scale = fit
+
+[aliases]
+
+# Example alias
+# myalias = open
+
+[binds]
+
+# Print the current image file
+<Ctrl+p> = exec lp "$imv_current_file"
+
+# Trash the current image and quit the viewer (recoverable from Trash)
+<Ctrl+x> = exec gio trash -- "$imv_current_file"; quit
+
+# Trash the current image and move to the next one
+<Ctrl+Shift+X> = exec gio trash -- "$imv_current_file"; close
+
+# Rotate the currently open image by 90 degrees
+<Ctrl+r> = exec mogrify -rotate 90 "$imv_current_file"
+
+# Edit the current image in Tensaku and quit the viewer
+<Ctrl+e> = exec tensaku-edit "$imv_current_file" & ; quit

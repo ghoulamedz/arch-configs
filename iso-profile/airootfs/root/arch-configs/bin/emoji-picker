@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# emoji-picker — pick an emoji and copy it to the clipboard.
+#
+# The list lives in ~/.local/share/arch-configs/data/emoji.tsv as
+# "<glyph><TAB><name>". fzf searches the whole line, so both the glyph and the
+# name match: typing "heart" or "red" finds ❤️.
+#
+# Copying the glyph rather than the name is why the first field is extracted.
+
+set -euo pipefail
+
+EMOJI_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/arch-configs/data/emoji.tsv"
+
+[[ -r $EMOJI_FILE ]] || { echo "missing: $EMOJI_FILE" >&2; exit 1; }
+command -v wl-copy >/dev/null || { echo "wl-clipboard is not installed" >&2; exit 1; }
+
+# The preview shows only the glyph, large, so you can see what you are picking.
+selection=$(
+  fzf <"$EMOJI_FILE" \
+    --delimiter='\t' \
+    --preview 'printf "%s\n" {1}' \
+    --preview-window 'right:20%:wrap' \
+    --color 'pointer:#7aa2f7,marker:#9ece6a,hl:#bb9af7'
+) || exit 0
+
+[[ -n $selection ]] || exit 0
+
+# Field 1 is the glyph; everything after the tab is the name.
+glyph=$(printf '%s' "$selection" | cut -f1)
+printf '%s' "$glyph" | wl-copy

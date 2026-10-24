@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#
+# menu-keybindings — show the keybinding cheatsheet.
+#
+# Replaces Omarchy's omarchy-menu-keybindings, which generated the list by reading
+# Hyprland's live configuration. Here the cheatsheet is a maintained file,
+# ~/.config/hypr/keybindings.md, kept in step with bindings.lua by hand — so this
+# script only has to display it.
+
+set -euo pipefail
+
+CHEATSHEET="$HOME/.config/hypr/keybindings.md"
+
+[[ -r $CHEATSHEET ]] || { echo "missing: $CHEATSHEET" >&2; exit 1; }
+
+# -R passes ANSI colour sequences through, which less needs for the table.
+exec less -R "$CHEATSHEET"

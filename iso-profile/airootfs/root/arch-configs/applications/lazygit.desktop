@@ -1,0 +1,16 @@
+[Desktop Entry]
+# ~/.local/share/applications/lazygit.desktop
+#
+# lazygit ships no .desktop file. With no argument it opens the repository of the
+# directory it starts in, so this opens $HOME; use the SUPER + RETURN terminal and
+# run `lg` inside a project for per-repo use.
+Type=Application
+Name=lazygit
+GenericName=Git client
+Comment=Terminal UI for git: stage, commit, branch, rebase, resolve conflicts
+Exec=ghostty -e lazygit
+Icon=git
+Terminal=false
+Categories=Development;RevisionControl;
+Keywords=lazygit;git;commit;branch;rebase;merge;stage;diff;vcs;
+StartupNotify=false

@@ -1,0 +1,12 @@
+[Desktop Entry]
+# ~/.local/share/applications/screenshot-annotate.desktop
+Type=Application
+Name=Screenshot and Annotate
+GenericName=Screenshot
+Comment=Capture an area, then draw on it with arrows, boxes, text or blur
+Exec=screenshot-annotate
+Icon=document-edit
+Terminal=false
+Categories=Graphics;
+Keywords=screenshot;annotate;draw;arrow;redact;blur;satty;edit;
+StartupNotify=false

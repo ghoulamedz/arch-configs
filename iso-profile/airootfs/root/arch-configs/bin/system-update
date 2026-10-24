@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+#
+# system-update [count] — the entire update story for this machine.
+#
+# Two modes:
+#   count   print the number of pending updates, or nothing at all when there are
+#           none. Waybar's custom/pkg module calls this: an empty output makes the
+#           module hide itself, which is why the count is not printed when zero.
+#   (none)  run the update. This is the launcher entry "Update System".
+#
+# pacman -Syu updates the official repositories, paru -Syu updates the AUR as well.
+# There is nothing else to update: no Flatpak, no Snap, no AppImage, and the
+# NVIDIA module is rebuilt by a pacman hook when the kernel changes.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# count
+# ---------------------------------------------------------------------------
+if [[ ${1:-} == count ]]; then
+  command -v checkupdates >/dev/null || exit 0
+
+  # checkupdates compares the sync databases against the installed versions. It
+  # exits non-zero when there is nothing to do, hence the `|| true`.
+  n=$(checkupdates 2>/dev/null | wc -l || true)
+
+  # Print nothing when there are no updates, so the Waybar module disappears.
+  (( n > 0 )) && printf '%s\n' "$n"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# update
+# ---------------------------------------------------------------------------
+echo "==> Official repositories"
+# -y refresh the databases, -u upgrade, -y again to skip the confirmation prompt.
+# Kept interactive rather than --noconfirm: an update that needs a decision
+# should be able to ask.
+sudo pacman -Syu
+
+echo
+echo "==> AUR"
+if command -v paru >/dev/null; then
+  # --noconfirm to avoid hanging on AUR conflicts in a non-interactive terminal
+  paru -Syu --noconfirm
+else
+  echo "paru is not installed; skipping the AUR."
+fi
+
+echo
+echo "==> Done."
+# A kernel or NVIDIA update needs a reboot to take effect. Say so rather than
+# leaving it to be discovered later.
+if pacman -Q linux >/dev/null 2>&1; then
+  echo "If the kernel or nvidia-open was updated, reboot before the next suspend."
+fi
+
+# Keep the window open so the output can be read; this runs in a floating
+# terminal that would otherwise close immediately.
+read -rp "Press Enter to close. " _

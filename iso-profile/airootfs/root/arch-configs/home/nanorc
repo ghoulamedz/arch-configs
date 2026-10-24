@@ -1,0 +1,36 @@
+# ~/.nanorc — nano configuration.
+# Reference: https://www.nano-editor.org/dist/latest/nanorc.5.html
+
+# Syntax highlighting. Arch ships one .nanorc per language in /usr/share/nano,
+# and nano expands the glob itself.
+include "/usr/share/nano/*.nanorc"
+
+# Line numbers in the left margin.
+set linenumbers
+
+# A tab is four columns wide, and inserted as spaces.
+set tabsize 4
+set tabstospaces
+
+# Copy the previous line's indentation onto a new line.
+set autoindent
+
+# Wrap long lines at the screen edge instead of scrolling horizontally.
+set breaklonglines
+
+# Show a scrollbar in the right margin.
+set scrollbar
+
+# Mouse support: click to move the cursor, drag to select.
+set mouse
+
+# Remember the cursor position between sessions, per file.
+set positionlog
+
+# Highlight the bracket matching the one under the cursor.
+set matchbrackets "(<[{)>]}"
+
+# Start the search case-insensitively, and become case-sensitive when the search
+# string contains an uppercase letter. This is nano's default, set explicitly so
+# it does not depend on the build.
+set smartcase

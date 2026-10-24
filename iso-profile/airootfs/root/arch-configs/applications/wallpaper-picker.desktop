@@ -1,0 +1,15 @@
+[Desktop Entry]
+# ~/.local/share/applications/wallpaper-picker.desktop
+#
+# Reads ~/Pictures/wallpapers. chafa renders each image in the preview pane, so
+# the choice is made by eye.
+Type=Application
+Name=Wallpaper Picker
+GenericName=Desktop
+Comment=Choose a wallpaper from ~/Pictures/wallpapers with a live preview
+Exec=foot --app-id=float-wallpaper-picker -e wallpaper-picker
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Settings;DesktopSettings;
+Keywords=wallpaper;background;desktop;image;hyprpaper;
+StartupNotify=false

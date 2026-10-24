@@ -1,0 +1,26 @@
+[Groups/0]
+# Group Name
+Name=Default
+# Layout
+Default Layout=fr
+# Default Input Method
+DefaultIM=keyboard-us
+
+[Groups/0/Items/0]
+# Name
+Name=keyboard-us
+# Layout
+# Layout=
+
+# Arabic by transliteration: type the Latin letters and they become Arabic
+# script. Provided by fcitx5-m17n. Toggle between the two input methods with
+# Ctrl+Space; the keyboard *layout* (French/Arabic) is switched by Hyprland with
+# Left Alt + Right Alt, independently of this.
+[Groups/0/Items/1]
+# Name
+Name=ar-translit
+# Layout
+# Layout=
+
+[GroupOrder]
+0=Default

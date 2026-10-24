@@ -1,0 +1,14 @@
+[Desktop Entry]
+# ~/.local/share/applications/emoji-picker.desktop
+#
+# The list is ~/.local/share/arch-configs/data/emoji.tsv and can be edited freely.
+Type=Application
+Name=Emoji Picker
+GenericName=Character picker
+Comment=Search for an emoji and copy it to the clipboard
+Exec=foot --app-id=float-emoji-picker -e emoji-picker
+Icon=face-smile
+Terminal=false
+Categories=Utility;
+Keywords=emoji;smiley;character;symbol;unicode;pick;
+StartupNotify=false

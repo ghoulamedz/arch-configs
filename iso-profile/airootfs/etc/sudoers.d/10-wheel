@@ -1,0 +1,12 @@
+# /etc/sudoers.d/10-wheel
+#
+# Members of wheel may run any command without a password. This is how sudo is
+# used on this machine.
+#
+# Consequence, stated plainly: anything running as medo can become root without
+# a prompt, so the account password is the only remaining barrier. That is the
+# accepted trade-off here.
+#
+# Mode must be 0440 — sudo refuses to read a group- or world-writable sudoers
+# file, and install-chroot.sh sets that mode when writing it.
+%wheel ALL=(ALL:ALL) NOPASSWD: ALL

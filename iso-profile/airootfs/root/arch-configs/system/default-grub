@@ -1,0 +1,30 @@
+# /etc/default/grub — GRUB's configuration.
+# Regenerate the boot menu after ANY change here:
+#   grub-mkconfig -o /boot/grub/grub.cfg
+
+# Seconds the menu waits before booting the default entry.
+GRUB_TIMEOUT=3
+
+# Boot the first menu entry that 10_linux generates (Arch on the btrfs root).
+GRUB_DEFAULT=0
+
+# Kernel command line for normal boots.
+#
+# Deliberately contains NO rootflags=: @ is the btrfs filesystem's default
+# subvolume, so the kernel mounts it without being told. grub-btrfs builds its
+# own rootflags from /etc/fstab and appends subvol= for each snapshot; a
+# rootflags here would produce two rootflags= parameters on those entries.
+GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=3"
+
+# Preload the modules GRUB needs to read a GPT table and a btrfs filesystem.
+# grub-btrfs's snapshot entries mount the top-level subvolume to find the kernel
+# and initramfs inside each snapshot, so btrfs must be available to GRUB itself.
+GRUB_PRELOAD_MODULES="part_gpt btrfs"
+
+# os-prober enabled: other installed OSes (Windows, other Linux distros)
+# are detected and added to the GRUB menu automatically. Requires the
+# os-prober package (now in packages/official.txt).
+GRUB_DISABLE_OS_PROBER=false
+
+# The snapshot entries appear as a submenu ("Arch Linux snapshots"). Left at the
+# default so they stay grouped instead of flooding the top level.

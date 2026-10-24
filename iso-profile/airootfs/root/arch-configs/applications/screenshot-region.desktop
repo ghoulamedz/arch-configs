@@ -1,0 +1,12 @@
+[Desktop Entry]
+# ~/.local/share/applications/screenshot-region.desktop
+Type=Application
+Name=Screenshot Region
+GenericName=Screenshot
+Comment=Select an area, save it and copy it to the clipboard
+Exec=screenshot-region
+Icon=applets-screenshooter
+Terminal=false
+Categories=Graphics;
+Keywords=screenshot;capture;region;area;snip;grim;slurp;
+StartupNotify=false

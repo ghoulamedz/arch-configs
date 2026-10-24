@@ -1,0 +1,140 @@
+/* ~/.config/waybar/style.css — Tokyo Night.
+ *
+ * Colours match looknfeel.lua and the terminal configs.
+ * The font stack matters: JetBrainsMono Nerd Font supplies the icon glyphs, and
+ * Symbols Nerd Font is the fallback for any glyph the "-basic" Nerd Font build
+ * does not include. Without that second family some bar icons render as boxes.
+ */
+
+* {
+  font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", "Inter", sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 0;
+  min-height: 0;
+}
+
+window#waybar {
+  background: transparent;
+  color: #a9b1d6;
+}
+
+/* Each module gets a pill background, so the bar reads as a row of chips
+ * instead of a solid strip. */
+.modules-left,
+.modules-center,
+.modules-right {
+  background: rgba(26, 27, 38, 0.92);
+  border-radius: 10px;
+  margin: 4px 6px;
+  padding: 0 6px;
+}
+
+#custom-launcher,
+#clock,
+#custom-scale,
+#custom-keepawake,
+#custom-nightlight,
+#custom-pkg,
+#bluetooth,
+#network,
+#pulseaudio,
+#battery,
+#custom-power,
+#tray {
+  padding: 0 8px;
+  margin: 0 1px;
+  color: #a9b1d6;
+}
+
+/* ---- left ---------------------------------------------------------------- */
+
+#custom-launcher {
+  color: #7aa2f7;
+  font-size: 15px;
+}
+
+#workspaces button {
+  padding: 0 6px;
+  margin: 0 1px;
+  background: transparent;
+  color: #565f89;
+  border-radius: 6px;
+}
+
+#workspaces button:hover {
+  background: rgba(122, 162, 247, 0.15);
+  color: #a9b1d6;
+}
+
+/* The focused workspace. */
+#workspaces button.active {
+  background: rgba(122, 162, 247, 0.22);
+  color: #7aa2f7;
+}
+
+/* A workspace with a window asking for attention. */
+#workspaces button.urgent {
+  background: rgba(247, 118, 142, 0.25);
+  color: #f7768e;
+}
+
+/* ---- centre -------------------------------------------------------------- */
+
+#clock {
+  color: #bb9af7;
+  font-weight: 700;
+}
+
+/* Amber while idle-lock is active, green while it is suspended. */
+#custom-keepawake.awake {
+  color: #9ece6a;
+}
+
+#custom-keepawake.idle {
+  color: #565f89;
+}
+
+#custom-nightlight.on {
+  color: #e0af68;
+}
+
+#custom-pkg {
+  color: #e0af68;
+}
+
+/* ---- right --------------------------------------------------------------- */
+
+#pulseaudio.muted,
+#network.disconnected,
+#bluetooth.disabled {
+  color: #565f89;
+}
+
+#battery.charging,
+#battery.plugged {
+  color: #9ece6a;
+}
+
+#battery.warning {
+  color: #e0af68;
+}
+
+#battery.critical {
+  color: #f7768e;
+}
+
+#custom-power {
+  color: #f7768e;
+  font-size: 14px;
+}
+
+/* The tray's own icons come from the applications, not from the font stack. */
+#tray > .passive {
+  -gtk-icon-effect: dim;
+}
+
+#tray > .needs-attention {
+  -gtk-icon-effect: highlight;
+}

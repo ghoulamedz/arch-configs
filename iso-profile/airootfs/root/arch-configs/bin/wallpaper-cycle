@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#
+# wallpaper-cycle [next|prev] — step through ~/Pictures/wallpapers in order.
+#
+# Bound to SUPER + SHIFT + SPACE (next). Shares its state file with
+# wallpaper-picker, so picking from the list and then cycling carries on from
+# there rather than restarting at the first image.
+
+set -euo pipefail
+
+DIR="$HOME/Pictures/wallpapers"
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/current-wallpaper"
+direction=${1:-next}
+
+case $direction in
+  next|prev) ;;
+  *) echo "usage: wallpaper-cycle [next|prev]" >&2; exit 2 ;;
+esac
+
+[[ -d $DIR ]] || { echo "missing directory: $DIR" >&2; exit 1; }
+
+mapfile -t files < <(
+  find "$DIR" -maxdepth 1 -type f \
+    \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) | sort -V
+)
+(( ${#files[@]} )) || { echo "no wallpapers in $DIR" >&2; exit 1; }
+
+# Find where we are. If the state file is missing or names a file that is no
+# longer there, fall back to the first entry.
+current=0
+if [[ -r $STATE ]]; then
+  current_name=$(<"$STATE")
+  for i in "${!files[@]}"; do
+    if [[ ${files[$i]} == "$current_name" ]]; then
+      current=$i
+      break
+    fi
+  done
+fi
+
+# Modular arithmetic, so cycling wraps around in both directions. The extra
+# +${#files[@]} before the modulo keeps the arithmetic positive when going back
+# from index 0.
+case $direction in
+  next) next=$(( (current + 1) % ${#files[@]} )) ;;
+  prev) next=$(( (current - 1 + ${#files[@]}) % ${#files[@]} )) ;;
+esac
+
+chosen=${files[$next]}
+
+hyprctl hyprpaper preload "$chosen" >/dev/null
+hyprctl hyprpaper wallpaper ",$chosen" >/dev/null
+
+install -d "$(dirname "$STATE")"
+printf '%s\n' "$chosen" >"$STATE"
